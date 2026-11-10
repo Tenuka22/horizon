@@ -40,6 +40,8 @@ sys-locale = "0.3"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 horizon-theme = { path = "../crates/horizon-theme" }
+# Ely.by's authserver address (account/elyby.rs).
+horizon-addresses = { path = "../crates/horizon-addresses" }
 # The engine, through the platform's public API (docs/layers.md): the pinned version, No AI, the preparer,
 # level.dat and servers.dat (the worlds and server lists of instances), and the official server's SRV record.
 horizon-platform = { path = "../crates/horizon-platform", features = ["prepare", "protocol", "world"] }

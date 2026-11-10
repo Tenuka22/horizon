@@ -260,6 +260,7 @@ mod tests {
         skin.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
             .unwrap();
         let mut account = crate::account::Account {
+            provider: crate::account::Provider::Microsoft,
             name: "TestPlayer".into(),
             uuid: "00000000000000000000000000000000".into(),
             skin: Some((
@@ -331,6 +332,7 @@ mod tests {
             }
         };
         let account = crate::account::Account {
+            provider: crate::account::Provider::Microsoft,
             name: "Notch".into(),
             uuid: uuid.into(),
             skin: None,
@@ -363,6 +365,7 @@ mod tests {
         skin.put_pixel(8, 8, image::Rgba([3, 5, 7, 255]));
         skin.save(&path).unwrap();
         let account = crate::account::Account {
+            provider: crate::account::Provider::Microsoft,
             name: "TestPlayer".into(),
             uuid: "00000000000000000000000000000000".into(),
             skin: Some((

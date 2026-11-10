@@ -884,7 +884,7 @@ fn authenticate(
         }
     };
     let ip = online.prevent_proxy.then(|| address.ip());
-    match crate::auth::has_joined(name, &digest, ip) {
+    match crate::auth::has_joined(online.provider, name, &digest, ip) {
         Ok(Some(profile)) => {
             log(
                 "INFO",

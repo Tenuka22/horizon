@@ -817,6 +817,7 @@ impl Launcher {
             None => catalogue,
         };
         let account = account::Account {
+            provider: account::Provider::Microsoft,
             uuid: "00000000000000000000000000000001".into(),
             name: "Preview".into(),
             skin: None,

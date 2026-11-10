@@ -5935,6 +5935,7 @@ mod tests {
         use super::{sign_in_change, SignInState};
         let mut shown = None;
         let completed = SignInState::Done(Ok(horizon_launcher::account::Account {
+            provider: horizon_launcher::account::Provider::Microsoft,
             uuid: "11111111111111111111111111111111".into(),
             name: "TestAccount".into(),
             skin: None,
