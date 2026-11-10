@@ -13,6 +13,7 @@ mod console;
 mod console_page;
 mod cull;
 mod datapacks_page;
+mod elyby_form;
 mod export_page;
 mod frame;
 mod game_tools;
@@ -389,6 +390,7 @@ struct Launcher {
     friend_code: line_edit::LineEdit,
     friend_focused: bool,
     friend_focus: FocusHandle,
+    elyby: elyby_form::ElyForm,
     /// The window's width at the last frame: Home's head lays out by it, as the mockup's `xl`.
     window_width: f32,
     /// The window's longer side in points, and the screen's pixels per point: the size pictures
@@ -695,6 +697,7 @@ impl Launcher {
             window_long_side: 0.,
             scale_factor: 1.,
             friend_focus: cx.focus_handle(),
+            elyby: elyby_form::ElyForm::new(cx),
             joining: None,
             quick_play: None,
             client_run: None,
@@ -1580,6 +1583,7 @@ impl Launcher {
         changed |= self.github_tick();
         changed |= self.native_log_read(cx);
         changed |= self.toast_tick();
+        changed |= self.elyby_tick();
         if let Some(sign_in) = &self.sign_in {
             if let Some(state) = sign_in_change(&mut self.sign_in_state, sign_in.state()) {
                 if let SignInState::Done(Ok(ref account)) = state {
@@ -4407,6 +4411,14 @@ impl Launcher {
             action,
             &t,
         ));
+        n += 1;
+        rows = rows.child(index_row(
+            n,
+            tr("Ely.by account"),
+            Some(self.elyby_body(cx).into_any_element()),
+            None,
+            &t,
+        ));
         (rows, n)
     }
 
@@ -5279,6 +5291,7 @@ impl Render for Launcher {
         self.mods.note_focus(window);
         self.github.note_focus(window);
         self.args_focused = self.args_focus.is_focused(window);
+        self.elyby.note_focus(window);
         self.proxy_focused = self.proxy_focus.is_focused(window);
         let size = window.viewport_size();
         self.window_width = f32::from(size.width);

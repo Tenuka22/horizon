@@ -159,9 +159,15 @@ fn route(mock: &mut Mock, method: &str, path: &str, auth: &str, body: &str) -> (
             if password == "hunter2:123456" || (password == "hunter2" && !mock.ely_two_factor) {
                 ely_session("ely-access-1", &v["clientToken"])
             } else if password == "hunter2" {
-                reply(401, json!({"error": "ForbiddenOperationException", "errorMessage": "Account protected with two factor auth."}))
+                reply(
+                    401,
+                    json!({"error": "ForbiddenOperationException", "errorMessage": "Account protected with two factor auth."}),
+                )
             } else {
-                reply(401, json!({"error": "ForbiddenOperationException", "errorMessage": "Invalid credentials. Invalid username or password."}))
+                reply(
+                    401,
+                    json!({"error": "ForbiddenOperationException", "errorMessage": "Invalid credentials. Invalid username or password."}),
+                )
             }
         }
         ("POST", "/ely/auth/refresh") => {
@@ -169,7 +175,10 @@ fn route(mock: &mut Mock, method: &str, path: &str, auth: &str, body: &str) -> (
             if v["accessToken"] == "ely-access-1" {
                 ely_session("ely-access-2", &v["clientToken"])
             } else {
-                reply(401, json!({"error": "ForbiddenOperationException", "errorMessage": "Invalid token."}))
+                reply(
+                    401,
+                    json!({"error": "ForbiddenOperationException", "errorMessage": "Invalid token."}),
+                )
             }
         }
         ("POST", "/ely/auth/invalidate") => (204, String::new()),
@@ -2523,25 +2532,41 @@ fn an_elyby_sign_in_asks_for_the_code_then_gives_the_session() {
     let (_m, ep) = mock(|m| m.ely_two_factor = true);
     let client = "client-1";
     assert_eq!(
-        elyby::authenticate(&ep.ely, "Notch", "hunter2", None, client).err().as_deref(),
+        elyby::authenticate(&ep.ely, "Notch", "hunter2", None, client)
+            .err()
+            .as_deref(),
         Some(elyby::CODE_NEEDED)
     );
     assert_eq!(
-        elyby::authenticate(&ep.ely, "Notch", "hunter2", Some("000000"), client).err().as_deref(),
+        elyby::authenticate(&ep.ely, "Notch", "hunter2", Some("000000"), client)
+            .err()
+            .as_deref(),
         Some(elyby::WRONG_CODE)
     );
     assert_eq!(
-        elyby::authenticate(&ep.ely, "Notch", "nope", None, client).err().as_deref(),
+        elyby::authenticate(&ep.ely, "Notch", "nope", None, client)
+            .err()
+            .as_deref(),
         Some(elyby::WRONG_CREDENTIALS)
     );
     let tokens = elyby::authenticate(&ep.ely, "Notch", "hunter2", Some("123456"), client).unwrap();
     assert_eq!(
-        (tokens.uuid.as_str(), tokens.name.as_str(), tokens.access.as_str(), tokens.client_token.as_str()),
+        (
+            tokens.uuid.as_str(),
+            tokens.name.as_str(),
+            tokens.access.as_str(),
+            tokens.client_token.as_str()
+        ),
         (UUID, "Notch", "ely-access-1", client)
     );
     let s = elyby::secrets(&tokens);
     assert_eq!(
-        (s.minecraft_token.as_str(), s.refresh_token.as_str(), s.xuid.clone(), s.owns),
+        (
+            s.minecraft_token.as_str(),
+            s.refresh_token.as_str(),
+            s.xuid.clone(),
+            s.owns
+        ),
         ("ely-access-1", client, None, true)
     );
     assert!(s.minecraft_expires_at > now() + RENEW_BEFORE);
@@ -2572,5 +2597,8 @@ fn an_elyby_session_renews_through_ely_and_never_asks_microsoft() {
     assert_eq!(renewed.uuid, UUID);
     let log = m.lock().unwrap().log.clone();
     assert!(log.iter().any(|(_, path, _)| path == "/ely/auth/refresh"));
-    assert!(log.iter().all(|(_, path, _)| !path.starts_with("/ms") && !path.starts_with("/mc") && !path.starts_with("/xbl") && !path.starts_with("/xsts")));
+    assert!(log.iter().all(|(_, path, _)| !path.starts_with("/ms")
+        && !path.starts_with("/mc")
+        && !path.starts_with("/xbl")
+        && !path.starts_with("/xsts")));
 }

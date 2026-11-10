@@ -11,8 +11,7 @@ pub const WRONG_CODE: &str = "Wrong username, password or two-factor code.";
 pub const CODE_NEEDED: &str =
     "This Ely.by account asks for a two-factor code. Enter it to sign in.";
 pub(super) const EXPIRED: &str = "Your Ely.by sign-in expired. Sign in again.";
-pub(super) const OTHER_PROFILE: &str =
-    "The Ely.by account now has another profile. Sign in again.";
+pub(super) const OTHER_PROFILE: &str = "The Ely.by account now has another profile. Sign in again.";
 const FAILED: &str = "Could not sign in to Ely.by. Try again later.";
 const RENEW_FAILED: &str = "Could not renew the Ely.by sign-in. Try again later.";
 
@@ -74,7 +73,12 @@ fn session(v: &Value, client_token: &str) -> Option<ElyTokens> {
     })
 }
 
-fn signed_in(status: u16, v: &Value, client_token: &str, refused: &str) -> Result<ElyTokens, String> {
+fn signed_in(
+    status: u16,
+    v: &Value,
+    client_token: &str,
+    refused: &str,
+) -> Result<ElyTokens, String> {
     match status {
         200..=299 => session(v, client_token).ok_or_else(|| FAILED.into()),
         401 if is_forbidden(v) => Err(refused.into()),

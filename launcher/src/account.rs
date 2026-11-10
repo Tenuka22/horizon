@@ -12,8 +12,8 @@
 //!
 //! The Azure app (client ID) is Horizon's own and is configuration: `HORIZON_MSA_CLIENT_ID` at
 //! build time, or at run time to override it. Without one, sign-in says it is not configured.
+pub mod elyby;
 pub mod session;
-mod elyby;
 
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -1892,7 +1892,11 @@ impl Accounts {
     /// Ely.by too (best effort).
     pub fn remove(&mut self, store: &dyn SecretStore, uuid: &str) -> Result<(), String> {
         let _operation = session::lock(store)?;
-        if self.accounts.iter().any(|a| a.uuid == uuid && a.provider == Provider::Ely) {
+        if self
+            .accounts
+            .iter()
+            .any(|a| a.uuid == uuid && a.provider == Provider::Ely)
+        {
             if let Some(s) = secrets_in(store, uuid) {
                 elyby::invalidate(&elyby::base(), &s.minecraft_token, &s.refresh_token);
             }
@@ -2236,7 +2240,11 @@ fn accept_sign_in(
 
 /// Signs in to Ely.by with the player's username and password (and the two-factor code, when the
 /// account asks for one). The account is kept as a Microsoft sign-in is.
-pub fn elyby_sign_in(username: &str, password: &str, totp: Option<&str>) -> Result<Account, String> {
+pub fn elyby_sign_in(
+    username: &str,
+    password: &str,
+    totp: Option<&str>,
+) -> Result<Account, String> {
     let store = store();
     let client = elyby::client_token()?;
     let tokens = elyby::authenticate(&elyby::base(), username, password, totp, &client)?;
@@ -2250,7 +2258,15 @@ pub fn elyby_sign_in(username: &str, password: &str, totp: Option<&str>) -> Resu
     };
     let _operation = session::lock(store)?;
     let mut accounts = Accounts::load();
-    accept_sign_in(&mut accounts, store, None, account.clone(), &secrets, &|| false, &|_| {})?;
+    accept_sign_in(
+        &mut accounts,
+        store,
+        None,
+        account.clone(),
+        &secrets,
+        &|| false,
+        &|_| {},
+    )?;
     accounts.save()?;
     Ok(account)
 }
