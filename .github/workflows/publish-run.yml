@@ -1,0 +1,42 @@
+name: publish-run
+# Publishes the launcher builds of one finished `launcher` run as a release, unsigned, for a repository that has
+# no release signing key or macOS runner (a fork): launchers that check signatures (docs/security.md) will not
+# update from it, so it is installed by hand. The files are copied on GitHub's side, never through a laptop.
+#   gh workflow run publish-run -f run_id=<id> -f tag=launcher@0.2.0 -f sha=<commit the run built>
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: The `launcher` run whose builds are published
+        required: true
+      tag:
+        description: The release's tag
+        required: true
+      sha:
+        description: The commit the run built
+        required: true
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download the run's launcher builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "${{ inputs.run_id }}" --repo "$GITHUB_REPOSITORY" --pattern 'horizon-launcher-*' --dir dist
+      - name: Checksums and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          SHA: ${{ inputs.sha }}
+        run: |
+          # One folder per artifact: the files side by side.
+          find dist -mindepth 2 -type f -exec mv -t dist {} +
+          (cd dist && sha256sum -- horizon-launcher-* > SHA256SUMS)
+          ls -l dist
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$SHA" --title "Launcher ${TAG#launcher@}" \
+            --notes "Launcher built from $SHA: Ely.by sign-in only, PolyMC-style game downloads. Unsigned: no release signing key and no macOS build in this repository, so launchers do not update from it. Download the file for your system." \
+            --latest=false dist/horizon-launcher-* dist/SHA256SUMS
