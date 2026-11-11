@@ -74,6 +74,8 @@ getrandom = "0.3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 # Screenshots read a row at a time and shrunk as they come (`pictures`): the version `image` uses.
 png = "0.18"
+# The Ely.by password is typed without echo in `account sign-in` (cli.rs).
+rpassword = "7"
 
 # Native builds at low priority (rust_toolchain::low_priority); already in the lockfile.
 [target.'cfg(unix)'.dependencies]

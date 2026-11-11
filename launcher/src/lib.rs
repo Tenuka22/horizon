@@ -1,6 +1,7 @@
 //! The launcher's core, shared by the GUI, the CLI and the MCP server.
 pub mod account;
 pub mod agents;
+pub mod authlib_injector;
 pub mod backend;
 pub mod browser;
 pub mod build_import;
@@ -38,7 +39,6 @@ pub mod nightly;
 pub mod other_launchers;
 pub mod packs;
 pub mod pictures;
-pub mod private_window;
 pub mod process;
 pub mod proxy;
 pub mod relocation;

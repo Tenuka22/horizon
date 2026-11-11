@@ -217,7 +217,12 @@ impl Launcher {
         };
         let (me, c) = match (&w.saved.me, &w.saved.catalogue, &w.status) {
             (_, _, Status::Offline | Status::Failed(_)) => {
-                return page.child(title).child(self.shop_failed(cx))
+                return page.child(title).child(self.shop_failed(None, cx))
+            }
+            (_, _, Status::Account(why)) => {
+                return page
+                    .child(title)
+                    .child(self.shop_failed(Some(why.clone()), cx))
             }
             (Some(me), Some(c), _) => (me.clone(), c.clone()),
             // The first answer is on its way.
@@ -269,8 +274,8 @@ impl Launcher {
         chips
     }
 
-    /// The catalogue didn't load: say so, with a Retry.
-    fn shop_failed(&self, cx: &mut Context<Self>) -> Div {
+    /// The shop didn't load: say so (or why, when the service named it), with a Retry.
+    fn shop_failed(&self, why: Option<String>, cx: &mut Context<Self>) -> Div {
         let t = self.theme;
         let retry = button("shop-retry", "Retry", Kind::Ghost, &t).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
@@ -284,7 +289,12 @@ impl Launcher {
             .justify_between()
             .gap(px(16.))
             .p(px(16.))
-            .child(ui::text(14., FontWeight::NORMAL, ink::BODY).child(tr("The shop didn't load.")))
+            .child(
+                ui::text(14., FontWeight::NORMAL, ink::BODY).child(match why {
+                    Some(why) => why,
+                    None => tr("The shop didn't load.").to_string(),
+                }),
+            )
             .child(retry)
     }
 

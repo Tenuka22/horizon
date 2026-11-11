@@ -54,7 +54,7 @@ To play, use [the launcher](../launcher/README.md); the project site is [playhor
 - [The launcher's mod browser](mod-browser.md): searching Modrinth and the Horizon registry for mods, modpacks, resource packs and shader packs, compatibility checks before install, and checksum verification.
 - [Launcher commands](launcher-commands.md): every command of `horizon-launcher`, CLI arguments, and the tools `horizon-launcher mcp` offers for driving launcher actions.
 - [Launcher resource preparation](launcher-preparation.md): compiling Java exporter classes into release bundles, verifying local Minecraft assets against `research-lock.json`, and multi-lane export workflows.
-- [Microsoft account sign-in](microsoft-account.md): signing players in with their Microsoft account in the launcher, joining online-mode servers, the owner gate, and the OAuth device-code flow.
+- [Ely.by accounts](elyby-account.md): signing players in with their Ely.by account in the launcher, token storage, the session handed to the game, game-file downloads, joining online-mode servers, and `auth-provider`.
 - [Windows allocators](windows-allocators.md): mimalloc defaults, the optional `windows-segment-heap` Cargo feature for Win32 heap APIs, and how to validate the executable manifest.
 - [Windows ARM64](windows-arm64.md): building and running native Windows ARM64 executables for `aarch64-pc-windows-msvc`, cross-compilation, and release packaging.
 

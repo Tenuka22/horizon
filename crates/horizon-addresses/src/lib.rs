@@ -35,6 +35,10 @@ pub const TELEMETRY: &str = "https://telemetry.playhorizon.dev";
 /// server, and the server's `hasJoined` check (`HORIZON_ELY_AUTH` overrides it).
 pub const ELY_AUTH: &str = "https://authserver.ely.by";
 
+/// Ely.by's skin system: the skin and cape of an Ely.by player, by name, for the launcher's heads
+/// and the profile (`HORIZON_ELY_SKINS` overrides it).
+pub const ELY_SKINS: &str = "https://skinsystem.ely.by";
+
 /// Public STUN servers for Play with Friends' NAT discovery: two independent operators, so one
 /// outage doesn't break discovery (`HORIZON_STUN_SERVERS` overrides them).
 pub const STUN_SERVERS: &[&str] = &["stun.cloudflare.com:3478", "stun.l.google.com:19302"];

@@ -187,14 +187,14 @@ fn sign_in(m: &Arc<Mutex<Mock>>, service: &Service) -> Session {
 }
 
 #[test]
-fn signing_in_goes_through_mojang_and_sends_the_service_no_token() {
+fn signing_in_goes_through_ely_by_and_sends_the_service_no_token() {
     let (m, service) = serve(|_| {});
-    // `join` fails (Mojang refused): the service is never asked to finish.
+    // `join` fails (Ely.by refused): the service is never asked to finish.
     let refused = service.sign_in("Notch", |_| Err("refused".into()));
     assert_eq!(refused.unwrap_err(), Error::Account("refused".into()));
-    // `join` claims success but Mojang never saw it: the service refuses the id.
+    // `join` claims success but Ely.by never saw it: the service refuses the id, and says so.
     let unconfirmed = service.sign_in("Notch", |_| Ok(())).unwrap_err();
-    assert!(matches!(unconfirmed, Error::Account(ref e) if e.contains("Sign in again")));
+    assert!(matches!(unconfirmed, Error::Account(ref e) if e.contains("Ely.by")));
 
     let session = sign_in(&m, &service);
     assert_eq!(

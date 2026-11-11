@@ -325,7 +325,7 @@ allow = "any"        # "any" (vanilla Java and Horizon) or "horizon" (Horizon cl
   account is checked by the session service, and the whitelist and bans apply on top.
   - `online_mode` stays the owner's setting. hosting.md's warnings about offline mode stay as they are: an
     offline server checks no accounts, so keep it on a LAN or a tailnet.
-  - No other auth providers. Horizon's own sign-in: [microsoft-account.md](microsoft-account.md).
+  - No other auth providers. Horizon's own sign-in: [elyby-account.md](elyby-account.md).
 - With `allow = "horizon"`, the server refuses a client that didn't send brand `horizon` and the fast-path
   hello (section 8) in configuration. The refusal message names the Horizon launcher.
   - **Be honest about what this is:** a convenience filter, not security. Horizon's client is open source, so

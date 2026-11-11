@@ -145,14 +145,73 @@ pub fn invalidate(base: &str, access: &str, client_token: &str) {
     );
 }
 
-/// The secret-store entry for a new Ely.by session. Ely accounts own the game by their sign-in.
+/// The secret-store entry for a new Ely.by session.
 pub fn secrets(tokens: &ElyTokens) -> Secrets {
     Secrets {
         refresh_token: tokens.client_token.clone(),
         sign_in_required: false,
         minecraft_token: tokens.access.clone(),
         minecraft_expires_at: now() + LIFETIME,
-        xuid: None,
-        owns: true,
+    }
+}
+
+/// Ely.by's skin system: the built-in address, or `HORIZON_ELY_SKINS` (the mock in tests).
+pub fn skins_base() -> String {
+    std::env::var("HORIZON_ELY_SKINS")
+        .ok()
+        .map(|b| b.trim().trim_end_matches('/').to_owned())
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| horizon_addresses::ELY_SKINS.trim_end_matches('/').into())
+}
+
+/// The skin system's textures URL for the player `name`: the name is the player's own, so it is
+/// encoded as one path segment.
+pub fn textures_url(base: &str, name: &str) -> String {
+    let segment: String = name
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-' | b'.' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect();
+    format!("{base}/textures/{segment}")
+}
+
+/// A player's skin (its URL and model) and cape (its URL); each `None` when they have none.
+pub type Looks = (Option<(String, String)>, Option<String>);
+
+/// What the skin system has for a player. A player with neither skin nor cape has `None` for both.
+pub fn textures(base: &str, name: &str) -> Result<Looks, String> {
+    let (status, v) = send(
+        request_to("GET", &textures_url(base, name)),
+        None,
+        "Ely.by's skin system",
+    )?;
+    match status {
+        // 204: no textures for this name.
+        204 => Ok((None, None)),
+        200 => {
+            let url = |key: &str| v.get(key).and_then(|t| str_field(t, "url"));
+            let model = v
+                .pointer("/SKIN/metadata/model")
+                .and_then(Value::as_str)
+                .filter(|m| *m == "slim")
+                .unwrap_or("classic");
+            Ok((url("SKIN").map(|u| (u, model.to_owned())), url("CAPE")))
+        }
+        _ => Err("Ely.by's skin system did not answer.".into()),
+    }
+}
+
+/// `account` with its skin and cape from the skin system. When it doesn't answer, the account
+/// keeps the ones it has: a skin is never worth failing a sign-in or a renewal for.
+pub(super) fn with_textures(base: &str, account: Account) -> Account {
+    match textures(base, &account.name) {
+        Ok((skin, cape)) => Account {
+            skin,
+            cape,
+            ..account
+        },
+        Err(_) => account,
     }
 }

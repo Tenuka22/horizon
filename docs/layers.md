@@ -591,6 +591,7 @@ Horizon's own and third-party addresses (Horizon layer):
 | `telemetry.playhorizon.dev` | opt-in telemetry, the "I'm playing" ping, benchmark uploads | `horizon-addresses` (#12993) |
 | `stun.cloudflare.com`, `stun.l.google.com` | Play with Friends NAT discovery | `horizon-addresses` (#12993) |
 | `authserver.ely.by` | Ely.by accounts: sign-in, session join, `hasJoined` ([Ely.by accounts](elyby-account.md)) | `horizon-addresses` (`ELY_AUTH`) |
+| `skinsystem.ely.by`, `ely.by` | Ely.by skins and capes: the launcher's heads and the account's profile (`/textures/<name>`, then the skin file) ([Ely.by accounts](elyby-account.md)) | `horizon-addresses` (`ELY_SKINS`) |
 | `afri-network.co.za` | the withdrawn partner server, so the game can remove the entry it added | `horizon-addresses` |
 | `horizon-rust.github.io/horizon-mods`, `github.com/horizon-rust/horizon-mods` | the mod registry index and files: a build of this repository alone asks the player for a registry | `mod_registry.rs`, `horizon-mods/src/index*.rs`, `cargo-horizon-mod` |
 | `api.modrinth.com`, `cdn.modrinth.com` | the in-game resource pack browser, modpack porting | `pack_browser.rs`, `horizon-port-pack` |
@@ -598,7 +599,7 @@ Horizon's own and third-party addresses (Horizon layer):
 | `playhorizon.dev` | the download link shown with no resources | `no_resources.rs` |
 | `api.github.com`, `discord.com` | hosting: updates, Discord webhooks | `horizon-server` |
 | `api.github.com`, `uploads.github.com`, `playhorizon.dev` | the registry's submission service | `horizon-mod-registry` |
-| Modrinth, CurseForge, Fabric, Quilt, Forge, NeoForge, GitHub, Microsoft and Xbox sign-in, Tailscale, `discord.gg`, `mclo.gs`, Sculk Hosting, `static.rust-lang.org`, GitHub Sponsors | the launcher's browsers, loaders, sign-in, logs, hosting, partner and sponsor pages | `launcher/src/`, `launcher/links.json` |
+| Modrinth, CurseForge, Fabric, Quilt, Forge, NeoForge, GitHub, Ely.by sign-in, Tailscale, `discord.gg`, `mclo.gs`, Sculk Hosting, `static.rust-lang.org`, GitHub Sponsors | the launcher's browsers, loaders, sign-in, logs, hosting, partner and sponsor pages | `launcher/src/`, `launcher/links.json` |
 
 These are not addresses:
 

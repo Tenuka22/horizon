@@ -9,8 +9,8 @@ plan are in [server.md](server.md).
 
 - **Online mode checks accounts** (release v2026.10.17.07 and newer). With `online_mode = true`, the
   default, every player joins with their own account, as on a vanilla server: vanilla players signed in with
-  the official Minecraft launcher, Horizon players with the Microsoft account they signed in with in Horizon's
-  launcher ([microsoft-account.md](microsoft-account.md)).
+  the official Minecraft launcher, Horizon players with the Ely.by account they signed in with in Horizon's
+  launcher ([elyby-account.md](elyby-account.md)).
 - **Names you add are accounts** (release v2026.10.17.14 and newer). `init --player`, `horizon-server
   whitelist add` and `op`, and the console's `whitelist add`, `op` and `ban` look a name up the way vanilla
   does: players already seen (kept in `usercache.json`), then Mojang's profile service. In online mode a name
@@ -116,8 +116,10 @@ horizon-server init --eula --world survival --seed 12345 --port 25565 --whitelis
 ```
 
 `--no-whitelist` turns the whitelist off, and `--offline` turns online mode off (see "Before you start").
-The players you add are looked up as Minecraft accounts in online mode, and get offline UUIDs on an offline
-server, as vanilla does.
+`--auth-provider elyby` (or `HORIZON_AUTH_PROVIDER`) makes online mode verify Ely.by accounts instead of Mojang's.
+The players you add are looked up as accounts of that provider in online mode (Ely.by's by `HORIZON_ELY_AUTH`,
+default `https://authserver.ely.by`), and get offline UUIDs on an offline server, as vanilla does. `op`,
+`whitelist` and `ban` look names up the same way.
 
 Start the server in the foreground, with the console on your terminal (Ctrl-C stops it cleanly):
 

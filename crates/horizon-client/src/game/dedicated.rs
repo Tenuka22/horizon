@@ -159,6 +159,8 @@ struct Setup {
 static SETUP: OnceLock<Mutex<Option<Setup>>> = OnceLock::new();
 /// usercache.json (Services.nameToIdCache): used by the server thread only.
 static USER_CACHE: Mutex<Option<UserCache>> = Mutex::new(None);
+/// Whose service resolves the names and ids the user cache doesn't know (`auth-provider`).
+static AUTH_PROVIDER: Mutex<AuthProvider> = Mutex::new(AuthProvider::Mojang);
 
 /// PlayerList.placeNewPlayer: a player who joined is cached (and the file saved).
 pub(super) fn player_joined(id: u128, name: &str) {
@@ -961,6 +963,7 @@ impl Game<'_> {
         }
         // DedicatedServer.initServer: names nobody has resolve offline only without authentication.
         cache.resolve_offline_users = !props.online_mode;
+        *AUTH_PROVIDER.lock().unwrap() = props.auth_provider;
         *USER_CACHE.lock().unwrap() = Some(cache);
         // Services.create: the services' public keys, fetched in the
         // background (they check players' chat keys).
@@ -1597,11 +1600,13 @@ impl Game<'_> {
     }
 
     /// `Services.nameToIdCache().get(name)`: the user cache, else the profile
-    /// service, else (offline) the offline player.
+    /// service of the server's `auth-provider` (Mojang's, or Ely.by's), else
+    /// (offline) the offline player.
     pub(super) fn resolve_name(&self, name: &str) -> Option<NameAndId> {
+        let provider = *AUTH_PROVIDER.lock().unwrap();
         USER_CACHE.lock().unwrap().as_mut().and_then(|cache| {
             cache.get_by_name(name, |lower| {
-                let found = profiles::find_by_name(&profiles::discovery_url(), lower);
+                let found = profiles::find_by_name_of(provider, lower);
                 if found.is_none() {
                     log("WARN", &format!("Couldn't find profile with name: {lower}"));
                 }

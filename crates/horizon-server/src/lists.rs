@@ -8,8 +8,9 @@
 //! reloads it (`whitelist reload`), as it would be written while the server is stopped.
 
 use crate::{config, supervisor};
-use horizon_platform::server_files::user_lists::{
-    BanEntry, BanList, IpBanList, NameAndId, OpEntry, OpList, WhiteEntry, WhiteList,
+use horizon_platform::server_files::{
+    properties::AuthProvider,
+    user_lists::{BanEntry, BanList, IpBanList, NameAndId, OpEntry, OpList, WhiteEntry, WhiteList},
 };
 use std::path::Path;
 
@@ -56,7 +57,7 @@ fn edit_locked(
     let (changed, message) = match (command, args) {
         ("op", [name]) => {
             let mut ops = load(OpList::new(ops_path))?;
-            let user = account(name, config.server.online_mode)?;
+            let user = account(name, config.accounts()?)?;
             if ops.contains(&user) {
                 (
                     false,
@@ -85,7 +86,7 @@ fn edit_locked(
         }
         ("whitelist", ["add", name]) => {
             let mut white = load(WhiteList::new(white_path))?;
-            let user = account(name, config.server.online_mode)?;
+            let user = account(name, config.accounts()?)?;
             if white.contains(&user) {
                 (false, "Player is already whitelisted".to_owned())
             } else {
@@ -138,7 +139,7 @@ fn edit_locked(
             }
         }
         ("ban", [name, rest @ ..]) => {
-            let user = account(name, config.server.online_mode)?;
+            let user = account(name, config.accounts()?)?;
             let reason = reason(rest);
             let mut bans = load(BanList::new(dir.join("banned-players.json")))?;
             if bans.add(BanEntry::new(
@@ -226,7 +227,7 @@ fn add_offline(dir: &Path, name: &str) -> Result<(), String> {
     if crate::api::Client::open(dir)?.is_none() {
         return Err(format!("no server is running in {}", dir.display()));
     }
-    let user = account(name, false)?;
+    let user = account(name, None)?;
     let mut white = load(WhiteList::new(dir.join("whitelist.json")))?;
     if white.contains(&user) {
         println!("Player is already whitelisted");
@@ -241,15 +242,13 @@ fn add_offline(dir: &Path, name: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The profile a running server would store for `name`: the offline one, or in online mode the account the
-/// services know by that name.
-pub fn account(name: &str, online: bool) -> Result<NameAndId, String> {
-    horizon_platform::server_files::profiles::resolve(name, online).ok_or_else(|| {
-        if online {
-            format!("That player does not exist (no Minecraft account is named {name}, or the services didn't answer)")
-        } else {
-            "That player does not exist".to_owned()
-        }
+/// The profile a running server would store for `name`: the offline one (`online` None), or in online mode the
+/// account that provider's service knows by that name.
+pub fn account(name: &str, online: Option<AuthProvider>) -> Result<NameAndId, String> {
+    horizon_platform::server_files::profiles::resolve(name, online).ok_or_else(|| match online {
+        Some(AuthProvider::Mojang) => format!("That player does not exist (no Minecraft account is named {name}, or the services didn't answer)"),
+        Some(AuthProvider::Elyby) => format!("That player does not exist (no Ely.by account is named {name}, or Ely.by didn't answer)"),
+        None => "That player does not exist".to_owned(),
     })
 }
 

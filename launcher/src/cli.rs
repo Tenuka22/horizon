@@ -108,13 +108,24 @@ enum ServersCmd {
 enum AccountCmd {
     /// The signed-in accounts and which one plays
     List,
-    /// Sign in with a Microsoft account in your browser (device code). Play needs one that owns
-    /// Minecraft: Java Edition
+    /// Sign in with an Ely.by account: asks for the username, the password (not shown) and, when
+    /// the account has one, the two-factor code. Play needs a signed-in account. Without a
+    /// terminal, give --username and the password on stdin with --password-stdin; a password is
+    /// never taken from the command line
     SignIn {
-        /// Sign this account (name or UUID) in again: another Microsoft account is refused and
-        /// who plays stays the same
-        #[arg(long = "for")]
-        target: Option<String>,
+        /// The Ely.by username (or email) to sign in; also an account already signed in, by name
+        /// or UUID, to sign it in again
+        #[arg(conflicts_with = "username")]
+        name: Option<String>,
+        /// The same as NAME, for scripts
+        #[arg(long)]
+        username: Option<String>,
+        /// Read the password from the first line of stdin (without a terminal)
+        #[arg(long)]
+        password_stdin: bool,
+        /// The two-factor code, for an account that has one (asked for when there is a terminal)
+        #[arg(long)]
+        code: Option<String>,
     },
     /// Renew an account's session now, even when its access token is still fresh
     Refresh { who: String },
@@ -710,15 +721,15 @@ enum Cmd {
         /// ATLauncher or GDLauncher (default: the launcher's, then every launcher's default)
         #[arg(long, conflicts_with = "download")]
         minecraft: Option<PathBuf>,
-        /// Download Minecraft from Mojang for the signed-in account that owns it, instead of
-        /// using an install
+        /// Download Minecraft's files from Mojang (no account needed), instead of using an
+        /// install
         #[arg(long)]
         download: bool,
         /// The installed version (default: the selected one)
         #[arg(long)]
         version: Option<String>,
     },
-    /// Start the client (needs a signed-in Microsoft account that owns Minecraft: Java Edition)
+    /// Start the client (needs a signed-in Ely.by account: horizon-launcher account sign-in)
     Play {
         #[arg(long)]
         version: Option<String>,
@@ -815,7 +826,7 @@ enum Cmd {
     Notes { tag: Option<String> },
     /// Show the Discord, sponsor and website links
     Links,
-    /// Microsoft accounts: list them (the default), sign in, sign out, or pick the one that plays
+    /// Ely.by accounts: list them (the default), sign in, sign out, or pick the one that plays
     Account {
         #[command(subcommand)]
         action: Option<AccountCmd>,
@@ -1909,13 +1920,11 @@ fn account_command(action: AccountCmd, as_json: bool) -> Result<(), String> {
                         "selected": accounts.selected.as_ref() == Some(&a.uuid),
                         "authentication": account::session::status(account::store(), &a.uuid),
                     })).collect::<Vec<_>>(),
-                    "sign_in_configured": account::client_id().is_some(),
-                    "owner": accounts.has_owner(account::store()),
+                    "signed_in": accounts.has_session(account::store()),
                 }));
             } else if accounts.accounts.is_empty() {
                 println!(
-                    "No Microsoft account signed in. Play needs one that owns Minecraft: Java \
-                     Edition: horizon-launcher account sign-in"
+                    "No account signed in. Play needs a signed-in Ely.by account (horizon-launcher account sign-in)"
                 );
             } else {
                 for a in &accounts.accounts {
@@ -1932,10 +1941,10 @@ fn account_command(action: AccountCmd, as_json: bool) -> Result<(), String> {
                     };
                     println!("{mark} {}  {}  {}{why}", a.name, a.uuid, status.label());
                 }
-                if !accounts.has_owner(account::store()) {
+                if !accounts.has_session(account::store()) {
                     println!(
                         "{} {}",
-                        account::NoOwner::default(),
+                        account::NoAccount::default(),
                         tr(backend::SIGN_IN_HINT)
                     );
                 }
@@ -1960,50 +1969,47 @@ fn account_command(action: AccountCmd, as_json: bool) -> Result<(), String> {
                 (Err(status), false) => return Err(status.message),
             }
         }
-        AccountCmd::SignIn { target: Some(who) } => {
-            let a = find(&accounts, &who)?;
-            let sign_in = account::SignIn::start_for(a.clone());
-            let mut shown = false;
+        AccountCmd::SignIn {
+            name,
+            username,
+            password_stdin,
+            code,
+        } => {
+            let from_terminal = std::io::stdin().is_terminal();
+            let username = match username.or(name) {
+                // A signed-in account's UUID works for its name.
+                Some(who) => accounts.find(&who).map_or(who, |a| a.name.clone()),
+                None if from_terminal => prompt_line("Ely.by username or email: ")?,
+                None => return Err("Add --username NAME (or give the name).".into()),
+            };
+            let mut code = code;
             let signed_in = loop {
-                match sign_in.state() {
-                    account::SignInState::Code(code) if !shown => {
-                        shown = true;
-                        if as_json {
-                            json(serde_json::json!({
-                                "link": code.verification_uri,
-                                "code": code.user_code,
-                            }));
-                        } else {
-                            eprintln!(
-                                "To sign {} in again, open {} in a browser and enter the code {}",
-                                a.name, code.verification_uri, code.user_code
-                            );
-                        }
+                let password = if from_terminal {
+                    prompt_password(&format!("Password for {username}: "))?
+                } else if password_stdin {
+                    read_password_stdin()?
+                } else {
+                    return Err(
+                        "Not a terminal: add --password-stdin and give the password on stdin."
+                            .into(),
+                    );
+                };
+                match account::elyby_sign_in(&username, &password, code.as_deref()) {
+                    Err(e) if e == account::elyby::CODE_NEEDED && from_terminal => {
+                        eprintln!("{e}");
+                        code = Some(prompt_line("Two-factor code: ")?);
                     }
-                    account::SignInState::Done(result) => break result?,
-                    _ => {}
+                    Err(e) if e == account::elyby::CODE_NEEDED => {
+                        return Err(format!("{e} Add --code CODE."));
+                    }
+                    result => break result?,
                 }
-                std::thread::sleep(std::time::Duration::from_millis(200));
             };
             if as_json {
-                json(serde_json::json!({ "signed_in": signed_in.uuid }));
+                json(serde_json::json!({ "signed_in": signed_in.uuid, "name": signed_in.name }));
             } else {
-                println!("Signed in as {} again.", signed_in.name);
+                println!("Signed in as {}.", signed_in.name);
             }
-        }
-        AccountCmd::SignIn { target: None } => {
-            let client_id = account::client_id().ok_or(account::NOT_CONFIGURED)?;
-            let ep = account::Endpoints::live();
-            let code = account::device_code(&ep, &client_id)?;
-            eprintln!(
-                "To sign in, open {} in a browser and enter the code {}",
-                code.verification_uri, code.user_code
-            );
-            let ms = account::wait_for_sign_in(&ep, &client_id, &code, &|| false)?;
-            let (signed_in, secrets) = account::finish_sign_in(&ep, ms)?;
-            accounts.add(account::store(), signed_in.clone(), &secrets)?;
-            accounts.save()?;
-            println!("Signed in as {}.", signed_in.name);
             if let Some(said) = account::no_keychain() {
                 eprintln!("{said}");
             }
@@ -2022,6 +2028,42 @@ fn account_command(action: AccountCmd, as_json: bool) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// A line typed at the terminal, after `prompt` (on stderr, so `--json` output stays clean).
+fn prompt_line(prompt: &str) -> Result<String, String> {
+    eprint!("{prompt}");
+    std::io::stderr().flush().map_err(|e| e.to_string())?;
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .map_err(|e| e.to_string())?;
+    Ok(line.trim().to_string())
+}
+
+/// A password typed at the terminal: nothing is echoed.
+fn prompt_password(prompt: &str) -> Result<String, String> {
+    eprint!("{prompt}");
+    std::io::stderr().flush().map_err(|e| e.to_string())?;
+    let password = rpassword::read_password().map_err(|e| e.to_string())?;
+    if password.is_empty() {
+        return Err("No password given.".into());
+    }
+    Ok(password)
+}
+
+/// The first line of stdin, which is the password for `--password-stdin` (only its line ending
+/// goes: a password may begin or end with spaces).
+fn read_password_stdin() -> Result<String, String> {
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .map_err(|e| e.to_string())?;
+    let password = line.trim_end_matches(['\r', '\n']);
+    if password.is_empty() {
+        return Err("No password on stdin.".into());
+    }
+    Ok(password.to_string())
 }
 
 /// `data`: the same consent as Settings → Data collection.
@@ -3699,6 +3741,45 @@ mod tests {
         match cli.command {
             Some(Cmd::Play { account, .. }) => assert_eq!(account.as_deref(), Some("Alex")),
             _ => panic!("not play"),
+        }
+    }
+
+    #[test]
+    fn sign_in_takes_no_password_on_the_command_line() {
+        let cli = Cli::try_parse_from([
+            "horizon-launcher",
+            "account",
+            "sign-in",
+            "--username",
+            "Alex",
+            "--password-stdin",
+            "--code",
+            "123456",
+        ])
+        .unwrap();
+        match cli.command {
+            Some(Cmd::Account {
+                action:
+                    Some(AccountCmd::SignIn {
+                        name,
+                        username,
+                        password_stdin,
+                        code,
+                    }),
+            }) => {
+                assert_eq!(name, None);
+                assert_eq!(username.as_deref(), Some("Alex"));
+                assert!(password_stdin);
+                assert_eq!(code.as_deref(), Some("123456"));
+            }
+            _ => panic!("not account sign-in"),
+        }
+        for refused in [
+            vec!["account", "sign-in", "Alex", "--username", "Alex"],
+            vec!["account", "sign-in", "--password", "secret"],
+        ] {
+            let args = std::iter::once("horizon-launcher").chain(refused);
+            assert!(Cli::try_parse_from(args).is_err());
         }
     }
 

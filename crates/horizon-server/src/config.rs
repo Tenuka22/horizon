@@ -6,7 +6,7 @@
 
 use horizon_platform::server_files::{
     java_properties::{Properties, date_string, now_millis},
-    properties::{DIFFICULTIES, GAME_MODES, ServerProperties, SystemEntropy},
+    properties::{AuthProvider, DIFFICULTIES, GAME_MODES, ServerProperties, SystemEntropy},
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path};
@@ -508,6 +508,14 @@ impl Config {
         Self::parse(&text).map_err(|e| format!("{}: {e}", path.display()))
     }
 
+    /// Whose accounts the server checks: None offline (`online_mode = false`), else the provider the
+    /// `auth-provider` property names (Mojang unless set), which is also who resolves the names the lists take.
+    pub fn accounts(&self) -> Result<Option<AuthProvider>, String> {
+        let provider = self.properties.get("auth-provider").map(property_text);
+        let provider = AuthProvider::parse(provider.as_deref())?;
+        Ok(self.server.online_mode.then_some(provider))
+    }
+
     fn check(&self) -> Result<(), String> {
         let w = &self.world;
         if !GAME_MODES.contains(&w.game_mode.as_str()) {
@@ -906,6 +914,27 @@ mod tests {
             }
             assert_eq!(vanilla.raw.get(&key), Some(value.as_str()), "{key}");
         }
+    }
+
+    #[test]
+    fn accounts_follow_online_mode_and_auth_provider() {
+        let mut c = Config::default();
+        assert_eq!(c.accounts(), Ok(Some(AuthProvider::Mojang)));
+        c.properties
+            .insert("auth-provider".into(), toml::Value::String("elyby".into()));
+        assert_eq!(c.accounts(), Ok(Some(AuthProvider::Elyby)));
+        c.server.online_mode = false;
+        assert_eq!(c.accounts(), Ok(None));
+        c.server.online_mode = true;
+        c.properties
+            .insert("auth-provider".into(), toml::Value::String("other".into()));
+        assert_eq!(
+            c.accounts(),
+            Err("auth-provider must be mojang or elyby, not other".into())
+        );
+        // An imported vanilla folder that names Ely.by keeps it.
+        let imported = Config::import(&properties(&[("auth-provider", "elyby")])).unwrap();
+        assert_eq!(imported.accounts(), Ok(Some(AuthProvider::Elyby)));
     }
 
     #[test]

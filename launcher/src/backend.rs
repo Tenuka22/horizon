@@ -492,15 +492,49 @@ pub(crate) const CLIENT: &str = if cfg!(windows) {
     "horizon-client"
 };
 
+type Agents = std::collections::HashMap<String, ureq::Agent>;
+static AGENTS: Mutex<Option<Agents>> = Mutex::new(None);
+
+/// Forgets the pooled agents, so the next request builds its own with the proxy as it is now.
+pub(crate) fn forget_agents() {
+    if let Ok(mut agents) = AGENTS.lock() {
+        *agents = None;
+    }
+}
+
 /// The agent `url` is fetched with: the launcher's own user agent, through the player's proxy when
-/// one is set (`proxy`).
+/// one is set (`proxy`). One agent serves every request to the same origin, so its connections
+/// are kept and reused: a download of thousands of small files (Minecraft's sounds) would
+/// otherwise open, and set up TLS for, a connection per file.
 pub(crate) fn agent(url: &str) -> ureq::Agent {
+    let origin = url
+        .split_once("://")
+        .map(|(scheme, rest)| {
+            format!(
+                "{scheme}://{}",
+                rest.split(['/', '?', '#']).next().unwrap_or_default()
+            )
+        })
+        .unwrap_or_else(|| url.to_owned());
+    let Ok(mut agents) = AGENTS.lock() else {
+        return new_agent(url);
+    };
+    agents
+        .get_or_insert_with(Agents::new)
+        .entry(origin)
+        .or_insert_with(|| new_agent(url))
+        .clone()
+}
+
+fn new_agent(url: &str) -> ureq::Agent {
     crate::proxy::agent(
         ureq::AgentBuilder::new()
             .user_agent(&format!("horizon-launcher/{VERSION}"))
             // A connection that goes quiet fails instead of waiting for ever.
             .timeout_connect(std::time::Duration::from_secs(15))
-            .timeout_read(std::time::Duration::from_secs(60)),
+            .timeout_read(std::time::Duration::from_secs(60))
+            // Every download worker keeps its connection for the next file.
+            .max_idle_connections_per_host(32),
         url,
     )
     .build()
@@ -1518,7 +1552,7 @@ pub fn resources_summary(prepared: bool, sounds: bool, version: &str) -> String 
     use crate::i18n::trf;
     match (prepared, sounds) {
         (false, _) => trf(
-            "Not prepared. Horizon needs the files of your own Minecraft {version}.",
+            "Not prepared. Horizon needs the files of Minecraft {version}: Play downloads them from Mojang.",
             &[("version", version)],
         ),
         (true, true) => trf("Prepared for Minecraft {version}", &[("version", version)]),
@@ -1935,9 +1969,9 @@ pub fn complete_assets(tag: &str) {
     });
 }
 
-/// Horizon's own download (an owner's) may have stopped before the sounds and the languages,
+/// Horizon's own download may have stopped before the sounds and the languages,
 /// and the copies of `complete_assets` read them from its store: asked again, once per run, through
-/// the same owner gate as any download from Mojang (`download_for_owner`), which keeps the files
+/// the same gate as any download from Mojang (`download_for_account`), which keeps the files
 /// already whole. Called where a download is expected (`reuse_prepared_everywhere`), never on Play.
 fn refill_own_store(tag: &str) {
     static ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -1964,7 +1998,7 @@ fn refill_own_store(tag: &str) {
             .map_err(|e| e.to_string())?;
         Ok(body)
     };
-    if let Err(e) = download_for_owner(&pins, &own, &fetch, &|line| eprintln!("{line}")) {
+    if let Err(e) = download_for_account(&pins, &own, &fetch, &|line| eprintln!("{line}")) {
         eprintln!("{tag}: the missing assets were not downloaded: {e}");
     }
 }
@@ -2104,33 +2138,29 @@ fn preparer_binary(dir: &Path) -> Option<PathBuf> {
     binary.is_file().then_some(binary)
 }
 
-/// Downloads the pinned version from Mojang into `dir` when an account in the launcher owns
-/// Minecraft (asked again now), else says what signing in would do, as the last line of the
-/// not-found error.
-fn download_for_owner(
+/// Downloads the pinned version from Mojang's public download servers into `dir` for the signed-in
+/// account (an Ely.by account doesn't have to own Minecraft), else says what signing in would do,
+/// as the last line of the not-found error. No request goes to Ely.by: the account is the one the
+/// launcher has in its keychain.
+fn download_for_account(
     pins: &sources::Pins,
     dir: &Path,
     fetch: sources::Fetch,
     log: &dyn Fn(String),
 ) -> Result<(), String> {
-    let mut accounts = account::Accounts::load();
-    // Any account that owns the game may download it (`launch`), not only the one that plays.
-    let pass = account::launch(
-        &account::Endpoints::live(),
-        account::client_id().as_deref(),
-        account::store(),
-        &mut accounts,
-    );
-    if let Err(e) = accounts.save() {
-        log(format!("Horizon: the accounts are not saved: {e}"));
-    }
-    download_for(pins, dir, pass, !accounts.accounts.is_empty(), fetch, log)
+    let accounts = account::Accounts::load();
+    let who = accounts
+        .selected()
+        .or_else(|| accounts.accounts.first())
+        .filter(|_| accounts.has_session(account::store()))
+        .map(|a| a.name.as_str());
+    download_for(pins, dir, who, fetch, log)
 }
 
 /// Downloads Minecraft `id` (any version on Mojang's list, its version file's sha1 from it) into
-/// Horizon's own game folder, in the official launcher's layout, for an account that owns the
-/// game (asked again now). Returns that folder.
-pub fn download_version_for_owner(
+/// Horizon's own game folder, in the official launcher's layout, for the signed-in account.
+/// Returns that folder.
+pub fn download_version(
     id: &str,
     manifest_sha1: &str,
     log: &dyn Fn(String),
@@ -2145,16 +2175,17 @@ pub fn download_version_for_owner(
         Ok(body)
     };
     let pins = sources::Pins::for_version(id, manifest_sha1);
-    download_for_owner(&pins, &dir, &fetch, log)
+    download_for_account(&pins, &dir, &fetch, log)
         .map_err(|e| e.trim_start_matches("\n  • ").to_string())?;
     Ok(dir)
 }
 
-/// The command that starts a Java instance's Minecraft, for an account that owns the game: its
-/// version downloaded from Mojang the first time (then it starts offline too), the Java it needs
-/// (the instance's own, else one found here, else Mojang's, downloaded), and the game in the
-/// instance's folder. The caller wraps it (`launch::wrap`) and never logs it: it holds the token.
-/// A Java instance's game, ready to start; `server` (`host[:port]`) is joined once it has.
+/// The command that starts a Java instance's Minecraft with the signed-in Ely.by account: the
+/// authlib-injector agent that points the game's sign-in at Ely.by (downloaded and checked the
+/// first time), its version downloaded from Mojang the first time (then it starts offline too),
+/// the Java it needs (the instance's own, else one found here, else Mojang's, downloaded), and
+/// the game in the instance's folder. The caller wraps it (`launch::wrap`) and never logs it: it
+/// holds the token. `server` (`host[:port]`) is joined once the game has started.
 pub fn java_game(
     instance: &crate::instances::Instance,
     server: Option<&str>,
@@ -2167,6 +2198,13 @@ pub fn java_game(
         )
     })?;
     let player = account::java_player()?;
+    // authlib-injector, Ely.by's way into the game: no jar, no game that could sign in.
+    let agent = crate::authlib_injector::ensure(
+        &crate::authlib_injector::dir(),
+        &get_bytes,
+        std::time::SystemTime::now(),
+        log,
+    )?;
     let minecraft = data_dir().join("minecraft");
     let id = mojang::relative(&game.minecraft)?;
     let natives = minecraft.join("natives").join(&id);
@@ -2181,7 +2219,7 @@ pub fn java_game(
     if !marker.is_file() {
         let listed = crate::minecraft_versions::load()?;
         let version = listed.find(&game.minecraft)?;
-        download_version_for_owner(&version.id, &version.sha1, log)?;
+        download_version(&version.id, &version.sha1, log)?;
         fs::write(&marker, "").map_err(|e| format!("{}: {e}", marker.display()))?;
     }
     // The Java the game needs, which also runs a loader's installer.
@@ -2241,54 +2279,37 @@ pub fn java_game(
             os: crate::java_launch::os_name(),
             window: game.window,
             server,
+            agent: Some(&agent),
         },
     )
 }
 
-/// What [`download_for_owner`] does with the owner gate's answer: Mojang's files only for its
-/// `owner`, an account the services said owns the game just now.
+/// What [`download_for_account`] does with who is signed in: Mojang's files only for a signed-in
+/// account, so Play and the download ask the same of the player.
 fn download_for(
     pins: &sources::Pins,
     dir: &Path,
-    pass: Result<account::Launch, account::NoOwner>,
-    signed_in: bool,
+    who: Option<&str>,
     fetch: sources::Fetch,
     log: &dyn Fn(String),
 ) -> Result<(), String> {
     let v = &pins.version;
-    match pass {
-        Ok(account::Launch {
-            owner: Some((owner, _)),
-            ..
-        }) => {
-            let name = owner.name;
-            log(format!(
-                "{name} owns Minecraft: downloading {v} from Mojang"
-            ));
-            let os = match sources::Os::current() {
-                sources::Os::Linux => "linux",
-                sources::Os::MacOs => "osx",
-                sources::Os::Windows => "windows",
-            };
-            mojang::download(pins, dir, os, 8, fetch, &mojang::CANCEL, log).map_err(|e| {
-                format!("\n  • Horizon tried to download {v} from Mojang for {name}, but: {e}")
-            })
-        }
-        // An owner by its last answer, who can't be asked now.
-        Ok(pass) => Err(format!(
-            "\n  • Downloading {v} from Mojang needs your Microsoft account, which could not be \
-             checked: {}",
-            pass.offline.unwrap_or_default()
-        )),
-        Err(_) if signed_in => Err(
-            "\n  • No signed-in account owns Minecraft: Java Edition, so Horizon can't download it."
-                .into(),
-        ),
-        Err(_) => Err(format!(
-            "\n  • Or sign in with the Microsoft account that owns Minecraft: Horizon then \
-             downloads {v} from Mojang itself."
-        )),
-    }
+    let Some(name) = who else {
+        return Err(format!(
+            "\n  • Or sign in with an Ely.by account: Horizon then downloads {v} from Mojang itself."
+        ));
+    };
+    log(format!("Downloading {v} from Mojang for {name}"));
+    mojang::download(
+        pins,
+        dir,
+        mojang::System::current(),
+        16,
+        fetch,
+        &mojang::CANCEL,
+        log,
+    )
+    .map_err(|e| format!("\n  • Horizon tried to download {v} from Mojang for {name}, but: {e}"))
 }
 
 /// The Java home for this version: a runtime for precompiled exporters, a JDK for older
@@ -2398,10 +2419,10 @@ fn assets_folder(
 /// Where the preparation takes Minecraft's files from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MinecraftFrom {
-    /// The player's own install (any launcher's); Mojang only when none has the version and an
-    /// account that owns the game is signed in.
+    /// The player's own install (any launcher's); Mojang when none has the version and an
+    /// account is signed in.
     Install,
-    /// Mojang, for the signed-in account that owns the game ("Download and prepare").
+    /// Mojang, for the signed-in account ("Download and prepare").
     Mojang,
 }
 
@@ -2478,8 +2499,8 @@ pub fn preparer(
         };
         let linked = data_dir().join("linked-minecraft");
         if from == MinecraftFrom::Mojang {
-            // Straight from Mojang (what is already there and whole is kept), for an owner only.
-            download_for_owner(&pins, &own, &fetch, log)
+            // Straight from Mojang (what is already there and whole is kept), for a signed-in account.
+            download_for_account(&pins, &own, &fetch, log)
                 .map_err(|e| e.trim_start_matches("\n  • ").to_string())?;
             own
         } else {
@@ -2491,7 +2512,8 @@ pub fn preparer(
                     sources::Resolved::Folder(dir) => dir,
                     sources::Resolved::NotFound(checked) => {
                         let not_found = sources::not_found(&version, &checked, minecraft);
-                        download_for_owner(&pins, &own, &fetch, log).map_err(|e| not_found + &e)?;
+                        download_for_account(&pins, &own, &fetch, log)
+                            .map_err(|e| not_found + &e)?;
                         own
                     }
                 }
@@ -3153,9 +3175,9 @@ pub fn need_prepared(tag: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "{tag} is not prepared yet. Prepare it first: `horizon-launcher prepare --version {tag}` \
-             uses your own Minecraft {v}, or downloads it from Mojang for the signed-in account \
-             that owns it.",
+            "{tag} is not prepared yet. Prepare it first: press Play on Home, or run \
+             `horizon-launcher prepare --version {tag}`. It uses your own Minecraft {v}, or downloads \
+             it from Mojang for the signed-in Ely.by account.",
             v = game_version(tag)
         ))
     }
@@ -4226,16 +4248,16 @@ pub enum Msg {
     /// None when secrets are kept in the OS keychain, else what to say: they last only until
     /// the launcher closes, and why.
     Keychain(Option<String>),
-    /// Whether an account in the launcher owned the game at its last check (the owner gate).
-    Owner(bool),
+    /// Whether an account in the launcher has a sign-in kept at its last check (the sign-in gate).
+    SignedIn(bool),
     /// Credential-free result from a background account operation.
     AccountStatus(String, u64, crate::account::session::Status),
     AccountProgress(String, u64, crate::account::session::Phase),
     AccountHead(String, Option<String>, Option<Vec<[u8; 4]>>, bool),
     AccountRemoved(String, u64, Result<bool, String>),
-    /// The owner gate's answer for the game about to start: the selected account's session
+    /// The gate's answer for the game about to start: the selected account's session
     /// file (none = offline) and why it plays offline, if it does.
-    Session(Result<crate::account::GameSession, crate::account::NoOwner>),
+    Session(Result<crate::account::GameSession, crate::account::NoAccount>),
     /// A modpack step's line (`modpacks`).
     PackLine(String),
     /// A modpack step ended: the pack as it now is.
@@ -4456,8 +4478,8 @@ pub struct Settings {
     /// first-run question, or on the Play page once if they answered that before it existed.
     #[serde(default)]
     pub ping_notice_seen: bool,
-    /// The player without an account that owns the game has read, once, why the launcher needs
-    /// one now (the owner gate's screen).
+    /// The player without a signed-in account has read, once, why the launcher needs
+    /// one now (the sign-in screen).
     #[serde(default)]
     pub owner_notice_seen: bool,
     /// Seconds a partner banner (the sidebar's card or the Servers page's banner) has been on
@@ -4779,12 +4801,12 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// The launcher downloads Mojang's game files (client jar, libraries, assets) only for an
-    /// account the services said owns the game: never without one, and never past the gate by
-    /// the developer option (`Settings::dev_offline`), whose pass has no owner.
+    /// The launcher downloads Mojang's game files (client jar, libraries, assets) for a signed-in
+    /// account, which doesn't have to own the game (an Ely.by account), and asks nothing of Mojang
+    /// without one.
     #[test]
-    fn mojang_downloads_only_for_an_owner() {
-        let dir = std::env::temp_dir().join(format!("horizon-owner-only-{}", std::process::id()));
+    fn mojang_downloads_need_a_signed_in_account_not_a_license() {
+        let dir = std::env::temp_dir().join(format!("horizon-signed-in-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let pins = sources::Pins::read(&serde_json::json!({ "minecraft": {
             "version": "26.3",
@@ -4798,124 +4820,21 @@ mod tests {
             Err("no network in tests".into())
         };
         let log = |_: String| {};
-        let no_owner = || Ok(account::Launch::default());
-        for (pass, signed_in) in [
-            (Err(account::NoOwner::default()), false),
-            (Err(account::NoOwner::default()), true),
-            (no_owner(), false),
-            (no_owner(), true),
-        ] {
-            assert!(download_for(&pins, &dir, pass, signed_in, &fetch, &log).is_err());
-        }
+        // Nobody signed in: nothing is asked, nothing is written, and the error says what to do.
+        let refused = download_for(&pins, &dir, None, &fetch, &log).unwrap_err();
+        assert!(refused.contains("Ely.by"), "{refused}");
         assert!(asked.lock().unwrap().is_empty());
         assert!(!dir.exists());
-        // An owner: Mojang is asked (and the download fails here, without network).
-        let owner = account::Account {
-            provider: account::Provider::Microsoft,
-            uuid: "069a79f444e94726a5befca90e38aaf5".into(),
-            name: "Notch".into(),
-            skin: None,
-            cape: None,
-        };
-        let secrets = serde_json::from_str(
-            r#"{"refresh_token":"r","minecraft_token":"t","minecraft_expires_at":1,"owns":true}"#,
-        )
-        .unwrap();
-        let pass = Ok(account::Launch {
-            owner: Some((owner, secrets)),
-            ..Default::default()
-        });
-        assert!(download_for(&pins, &dir, pass, true, &fetch, &log).is_err());
-        assert!(!asked.lock().unwrap().is_empty());
-        let _ = fs::remove_dir_all(&dir);
-
-        // A store that lacks assets is not filled for a non-owner either: nothing is asked.
-        fs::create_dir_all(dir.join("assets/indexes")).unwrap();
-        fs::write(
-            dir.join("assets/indexes/34.json"),
-            r#"{"objects":{"a":{"hash":"00","size":1}}}"#,
-        )
-        .unwrap();
-        asked.lock().unwrap().clear();
-        for (pass, signed_in) in [(Err(account::NoOwner::default()), true), (no_owner(), true)] {
-            assert!(download_for(&pins, &dir, pass, signed_in, &fetch, &log).is_err());
-        }
-        assert!(asked.lock().unwrap().is_empty());
-        let _ = fs::remove_dir_all(&dir);
-
-        // In the sources: one call downloads the game, in `download_for`, and the only caller
-        // of that asks the strict gate. Game-file hosts appear nowhere else.
-        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut files = vec![src.clone()];
-        let mut sources = Vec::new();
-        while let Some(path) = files.pop() {
-            if path.is_dir() {
-                files.extend(fs::read_dir(&path).unwrap().map(|e| e.unwrap().path()));
-            } else if path.extension().is_some_and(|e| e == "rs") {
-                let name = path.file_name().unwrap().to_string_lossy().to_string();
-                let in_tests = name.contains("tests") || path.parent().unwrap() != src;
-                // The code alone: test modules (this one included) come after it.
-                // A Windows checkout has CRLF line ends: the searches below look for "\n".
-                let mut text = fs::read_to_string(&path).unwrap().replace("\r\n", "\n");
-                text.truncate(text.find("#[cfg(test)]").unwrap_or(text.len()));
-                sources.push((name, in_tests, text));
-            }
-        }
-        let calls: Vec<_> = sources
+        // An account is signed in: Mojang's version file is asked for (the download fails here,
+        // without network, and says for whom it was tried).
+        let failed = download_for(&pins, &dir, Some("Notch"), &fetch, &log).unwrap_err();
+        assert!(failed.contains("Notch"), "{failed}");
+        assert!(asked
+            .lock()
+            .unwrap()
             .iter()
-            .filter(|(_, tests, _)| !tests)
-            .flat_map(|(name, _, text)| {
-                text.matches("mojang::download(")
-                    .map(move |_| name.as_str())
-            })
-            .collect();
-        assert_eq!(calls, ["backend.rs"]);
-        let backend = &sources.iter().find(|(n, ..)| n == "backend.rs").unwrap().2;
-        let body = |f: &str| {
-            let start = backend.find(&format!("\nfn {f}(")).unwrap();
-            &backend[start..start + backend[start + 1..].find("\n}\n").unwrap()]
-        };
-        assert!(body("download_for").contains("mojang::download("));
-        assert!(body("download_for_owner").contains("account::launch("));
-        assert!(!body("download_for_owner").contains("launch_for_game("));
-        // `download_for` is defined once and called once, by `download_for_owner`.
-        assert_eq!(backend.matches("download_for(").count(), 2);
-        assert!(body("download_for_owner").contains("download_for("));
-        // Refilling an incomplete store asks the same gate and names no host or download itself.
-        assert!(body("refill_own_store").contains("download_for_owner("));
-        assert!(!body("refill_own_store").contains("mojang::"));
-        // It runs at start-up, never on Play, which also runs `complete_assets`.
-        let public = |f: &str| {
-            let start = backend
-                .find(&format!(
-                    "
-pub fn {f}("
-                ))
-                .unwrap();
-            &backend[start
-                ..start
-                    + backend[start + 1..]
-                        .find(
-                            "
-}
-",
-                        )
-                        .unwrap()]
-        };
-        assert!(public("reuse_prepared_everywhere").contains("refill_own_store("));
-        assert!(!public("complete_assets").contains("refill_own_store("));
-        for host in [
-            "piston-data",
-            "libraries.minecraft.net",
-            "resources.download.minecraft.net",
-        ] {
-            for (name, tests, text) in &sources {
-                assert!(
-                    *tests || name == "mojang.rs" || !text.contains(host),
-                    "{name} names {host}"
-                );
-            }
-        }
+            .any(|url| url.starts_with("https://piston-meta.mojang.com/")));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     /// A preparation that reuses the imported game files still reads the assets from the

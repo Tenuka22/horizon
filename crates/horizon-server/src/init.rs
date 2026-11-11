@@ -6,6 +6,7 @@ use crate::{config, config::Config, engine};
 use horizon_platform::server_files::{
     eula,
     java_properties::now_millis,
+    properties::AuthProvider,
     user_lists::{OpEntry, OpList, WhiteEntry, WhiteList},
 };
 use std::{
@@ -25,6 +26,8 @@ pub struct Answers {
     pub op: Option<String>,
     /// online-mode (true unless set): players' Minecraft accounts are checked.
     pub online: Option<bool>,
+    /// auth-provider: whose accounts online mode checks, and who resolves the names given here.
+    pub auth_provider: Option<AuthProvider>,
     /// Take the default for every question not answered by a flag.
     pub yes: bool,
 }
@@ -32,7 +35,8 @@ pub struct Answers {
 impl Answers {
     /// The answers in the environment, for containers: `HORIZON_EULA=true`, `HORIZON_WORLD`,
     /// `HORIZON_SEED`, `HORIZON_PORT`, `HORIZON_WHITELIST=true|false`, `HORIZON_PLAYERS` (names separated by
-    /// commas), `HORIZON_OP` and `HORIZON_ONLINE=true|false`. Flags given on the command line win.
+    /// commas), `HORIZON_OP`, `HORIZON_ONLINE=true|false` and `HORIZON_AUTH_PROVIDER=mojang|elyby`. Flags given
+    /// on the command line win.
     pub fn from_env() -> Result<Self, String> {
         let var = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
         let flag = |name: &str| var(name).map(|v| v.eq_ignore_ascii_case("true"));
@@ -57,6 +61,9 @@ impl Answers {
                 .unwrap_or_default(),
             op: var("HORIZON_OP"),
             online: flag("HORIZON_ONLINE"),
+            auth_provider: var("HORIZON_AUTH_PROVIDER")
+                .map(|p| AuthProvider::parse(Some(&p)).map_err(|e| format!("HORIZON_AUTH_PROVIDER: {e}")))
+                .transpose()?,
             yes: false,
         })
     }
@@ -178,6 +185,12 @@ pub fn run(dir: &Path, answers: Answers) -> Result<(), String> {
     if let Some(online) = answers.online {
         cfg.server.online_mode = online;
     }
+    if let Some(provider) = answers.auth_provider {
+        cfg.properties.insert(
+            "auth-provider".into(),
+            toml::Value::String(provider.name().to_owned()),
+        );
+    }
     cfg.server.whitelist = answers.whitelist.unwrap_or_else(|| {
         prompt.yes(
             "Only let in players you list (whitelist)?",
@@ -199,7 +212,7 @@ pub fn run(dir: &Path, answers: Answers) -> Result<(), String> {
             .yes(&format!("Make {first} an operator?"), true)
             .then(|| first.clone())
     });
-    add_players(dir, &players, op.as_deref(), cfg.server.online_mode)?;
+    add_players(dir, &players, op.as_deref(), cfg.accounts()?)?;
 
     // 5. The game and its files.
     match engine::program(&cfg, dir) {
@@ -237,12 +250,12 @@ pub fn run(dir: &Path, answers: Answers) -> Result<(), String> {
 }
 
 /// Adds players to the whitelist (and one as an operator) in vanilla's files, with the profiles the server
-/// will see: offline ones, or in online mode their accounts.
+/// will see: offline ones (`online` None), or in online mode their accounts at the auth provider.
 fn add_players(
     dir: &Path,
     players: &[String],
     op: Option<&str>,
-    online: bool,
+    online: Option<AuthProvider>,
 ) -> Result<(), String> {
     if !players.is_empty() {
         let mut white = WhiteList::new(dir.join("whitelist.json"));
@@ -285,6 +298,7 @@ mod tests {
             op: Some("Alex".into()),
             // Offline: no account lookups in a test.
             online: Some(false),
+            auth_provider: Some(AuthProvider::Elyby),
             yes: true,
         };
         run(&dir, answers).unwrap();
@@ -299,6 +313,10 @@ mod tests {
         );
         assert!(eula::agreed(&dir.join("eula.txt")).unwrap());
         assert!(!cfg.server.online_mode);
+        assert_eq!(
+            cfg.properties["auth-provider"],
+            toml::Value::String("elyby".into())
+        );
         let white = std::fs::read_to_string(dir.join("whitelist.json")).unwrap();
         assert!(
             white.contains("\"Alex\"") && white.contains("\"Steve\""),

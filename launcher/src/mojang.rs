@@ -1,12 +1,13 @@
-//! The player's own download of the pinned version from Mojang, for a signed-in account that
-//! owns Minecraft: Java Edition (#434), as other launchers get it: the version JSON, the client
-//! jar, this system's libraries and the assets (the sounds), each checked against its sha1,
-//! in the official launcher's layout in the launcher's data folder. sources.rs then finds them
-//! there like any launcher's. Nothing of Mojang's is part of Horizon.
+//! The player's own download of the pinned version from Mojang's public servers, as other
+//! launchers get it: the version JSON, the client jar, this system's libraries and the assets
+//! (the sounds), each checked against its sha1, in the official launcher's layout in the
+//! launcher's data folder. No Minecraft account takes part: the files are public, so an
+//! Ely.by player gets them as anyone does. sources.rs then finds them there like any
+//! launcher's. Nothing of Mojang's is part of Horizon.
 //!
-//! Each file is checked against the size and sha1 Mojang lists, and written whole. A download
-//! stopped half way (cancelled, no network) keeps the files it finished: the next one fetches
-//! only the rest.
+//! Each file is checked against the size and sha1 Mojang lists, and written whole. A file
+//! that fails is tried again before the download gives up. A download stopped half way
+//! (cancelled, no network) keeps the files it finished: the next one fetches only the rest.
 
 use crate::sources::{fetch_checked, fetch_manifest, sha1_file, sha1_hex, write_file, Fetch, Pins};
 use serde_json::Value;
@@ -40,15 +41,21 @@ struct File {
     sha1: String,
     size: Option<u64>,
     path: PathBuf,
+    /// Kept when its size is the listed one rather than its sha1 (the assets: each object is
+    /// written whole or not at all, and there are thousands).
+    by_size: bool,
 }
 
 /// Downloads the pinned version into `dir`, `jobs` files at a time; files already there and
-/// whole are kept. An asset that fails is a line in the log (the game is then partly silent),
-/// anything else an error. `cancel` stops it between files.
+/// whole are kept, and with all of them there nothing is fetched at all. A file that fails is tried
+/// again (`TRIES` in all) before the download fails, naming every file that did. The asset
+/// list that cannot be fetched is replaced by the one already there; an asset that fails is a
+/// line in the log (the game is then partly silent), anything else an error. `cancel` stops it
+/// between files.
 pub fn download(
     pins: &Pins,
     dir: &Path,
-    os: &str,
+    system: System,
     jobs: usize,
     fetch: Fetch,
     cancel: &AtomicBool,
@@ -71,26 +78,33 @@ pub fn download(
         sha1: client_sha1,
         size: client["size"].as_u64(),
         path: versions.join(format!("{v}.jar")),
+        by_size: false,
     }];
     let libraries = manifest["libraries"]
         .as_array()
         .ok_or("The version file has no libraries")?;
-    for library in libraries.iter().filter(|l| allowed(l, os)) {
+    for library in libraries.iter().filter(|l| active(l, system)) {
         // Before 1.19 a library's natives for this system are a classifier of its own.
-        let native = native_classifier(library, os)
+        let native = native_classifier(library, system)
             .map(|key| &library["downloads"]["classifiers"][key.as_str()]);
         for artifact in [Some(&library["downloads"]["artifact"]), native]
             .into_iter()
             .flatten()
             .filter(|a| !a.is_null())
         {
+            let path = dir
+                .join("libraries")
+                .join(relative(&text(artifact, "path")?)?);
+            // Libraries listed twice are fetched once: two writers would share a partial file.
+            if game.iter().any(|f| f.path == path) {
+                continue;
+            }
             game.push(File {
                 url: text(artifact, "url")?,
                 sha1: text(artifact, "sha1")?,
                 size: artifact["size"].as_u64(),
-                path: dir
-                    .join("libraries")
-                    .join(relative(&text(artifact, "path")?)?),
+                path,
+                by_size: false,
             });
         }
     }
@@ -106,12 +120,13 @@ pub fn download(
             path: dir
                 .join("assets/log_configs")
                 .join(relative(&text(logging, "id")?)?),
+            by_size: false,
         });
     }
     log(format!(
         "Downloading Minecraft {v} from Mojang: the game and {libraries} libraries"
     ));
-    fetch_all(&game, jobs, fetch, cancel, log)?;
+    fetch_all(&game, jobs, fetch, cancel, log).map_err(Stop::message)?;
     let index = &manifest["assetIndex"];
     let index = File {
         url: text(index, "url")?,
@@ -120,31 +135,42 @@ pub fn download(
         path: dir
             .join("assets/indexes")
             .join(relative(&format!("{}.json", text(index, "id")?))?),
+        by_size: false,
     };
-    let assets = fetch_all(std::slice::from_ref(&index), 1, fetch, cancel, log)
-        .and_then(|_| objects(&read_json(&index.path)?, dir))
-        .and_then(|objects| {
-            log(format!("Downloading the sounds ({} files)", objects.len()));
-            // A connection that fails now and then is tried again, and a file that still fails
-            // does not stop the others: the next download fetches what is left.
-            let retrying = |url: &str| {
-                let mut got = fetch(url);
-                for _ in 0..2 {
-                    if got.is_ok() {
-                        break;
-                    }
-                    got = fetch(url);
-                }
-                got
-            };
-            fetch_each(&objects, jobs, &retrying, cancel, log, false)
-        });
-    match assets {
-        Err(e) if e == CANCELLED => return Err(e),
-        Err(e) => log(format!("The sounds could not all be downloaded: {e}")),
-        Ok(()) => {}
+    match sounds(&index, dir, jobs, fetch, cancel, log) {
+        Err(Stop::Cancelled) => Err(CANCELLED.to_string()),
+        Err(Stop::Failed(failed)) => {
+            log(format!(
+                "The sounds could not all be downloaded: {}",
+                describe(&failed)
+            ));
+            Ok(())
+        }
+        Ok(()) => Ok(()),
     }
-    Ok(())
+}
+
+/// The assets: the list `index` names, which stays usable from an earlier download when it can
+/// no longer be fetched, then each sound and other object it lists.
+fn sounds(
+    index: &File,
+    dir: &Path,
+    jobs: usize,
+    fetch: Fetch,
+    cancel: &AtomicBool,
+    log: &dyn Fn(String),
+) -> Result<(), Stop> {
+    match fetch_all(std::slice::from_ref(index), 1, fetch, cancel, log) {
+        Err(Stop::Failed(failed)) if index.path.is_file() => log(format!(
+            "The asset list could not be downloaded, so the one already here is used: {}",
+            describe(&failed)
+        )),
+        other => other?,
+    }
+    let list = read_json(&index.path).map_err(|e| Stop::Failed(vec![e]))?;
+    let objects = objects(&list, dir).map_err(|e| Stop::Failed(vec![e]))?;
+    log(format!("Downloading the sounds ({} files)", objects.len()));
+    fetch_all(&objects, jobs, fetch, cancel, log)
 }
 
 /// Mojang's name for this system in its Java runtime index.
@@ -208,6 +234,7 @@ pub fn java_runtime(
                     sha1: text(raw, "sha1")?,
                     size: raw["size"].as_u64(),
                     path,
+                    by_size: false,
                 });
             }
             Some("link") => links.push((path, text(file, "target")?)),
@@ -219,7 +246,7 @@ pub fn java_runtime(
         "Downloading Minecraft's Java {name} from Mojang ({} files)",
         downloads.len()
     ));
-    fetch_all(&downloads, jobs, fetch, cancel, log)?;
+    fetch_all(&downloads, jobs, fetch, cancel, log).map_err(Stop::message)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -289,29 +316,125 @@ pub(crate) fn relative(path: &str) -> Result<PathBuf, String> {
         .ok_or_else(|| format!("Unsafe path {path:?} in the version file"))
 }
 
-/// Whether a library's rules let this system (`osx`, `windows`, `linux`) use it: the last
-/// rule that matches decides.
-fn allowed(library: &Value, os: &str) -> bool {
-    let Some(rules) = library["rules"].as_array() else {
-        return true;
-    };
-    rules
-        .iter()
-        .rfind(|rule| rule["os"]["name"].as_str().is_none_or(|name| name == os))
-        .is_some_and(|rule| rule["action"] == "allow")
+/// A processor family, as a rule's `os.arch` names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Arch {
+    /// 32-bit x86 (`x86`).
+    X86,
+    /// 64-bit x86 (`x86_64`, `amd64`).
+    X86_64,
+    /// 64-bit ARM (`arm64`, `aarch64`).
+    Arm64,
 }
 
-/// The classifier holding a library's natives for `os` (`natives-osx`), from its `natives` map;
-/// `${arch}` is this system's word size, as old versions name Windows' natives.
-pub(crate) fn native_classifier(library: &Value, os: &str) -> Option<String> {
-    let arch = if cfg!(target_pointer_width = "64") {
-        "64"
-    } else {
-        "32"
+impl Arch {
+    /// This build's own.
+    pub fn current() -> Arch {
+        if cfg!(target_arch = "aarch64") {
+            Arch::Arm64
+        } else if cfg!(target_arch = "x86") {
+            Arch::X86
+        } else {
+            Arch::X86_64
+        }
+    }
+
+    /// The word a classifier ends with for this architecture (`natives-linux-arm64`).
+    fn name(self) -> &'static str {
+        match self {
+            Arch::X86 => "x86",
+            Arch::X86_64 => "x86_64",
+            Arch::Arm64 => "arm64",
+        }
+    }
+
+    /// Whether a rule's `os.arch` names this one.
+    fn named(self, arch: &str) -> bool {
+        match arch {
+            "x86" => self == Arch::X86,
+            "x86_64" | "amd64" => self == Arch::X86_64,
+            "arm64" | "aarch64" => self == Arch::Arm64,
+            _ => false,
+        }
+    }
+
+    /// `${arch}` in an old classifier (`natives-windows-${arch}`): the word size.
+    fn bits(self) -> &'static str {
+        match self {
+            Arch::X86 => "32",
+            Arch::X86_64 | Arch::Arm64 => "64",
+        }
+    }
+}
+
+/// The system a game runs on, as version files name it; every file and rule choice depends
+/// on it, so what downloads, what is on the classpath and what unpacks agree.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct System<'a> {
+    /// `osx`, `linux` or `windows`.
+    pub os: &'a str,
+    /// The processor of the Java that runs the game (not always the computer's own).
+    pub arch: Arch,
+}
+
+impl System<'static> {
+    /// This computer.
+    pub fn current() -> Self {
+        System {
+            os: crate::java_launch::os_name(),
+            arch: Arch::current(),
+        }
+    }
+}
+
+/// Whether a rule list lets `system` in: the last rule that matches decides; no rules allow.
+/// A rule matches by its `os.name`, `os.arch` and `features`; the optional features (demo,
+/// custom resolution, quick play) are on only when named in `on`.
+pub(crate) fn rules_allow(rules: &Value, system: System, on: &[&str]) -> bool {
+    let Some(rules) = rules.as_array().filter(|rules| !rules.is_empty()) else {
+        return true;
     };
-    library["natives"][os]
-        .as_str()
-        .map(|key| key.replace("${arch}", arch))
+    let mut allow = false;
+    for rule in rules {
+        let os = &rule["os"];
+        let matches = os["name"].as_str().is_none_or(|name| name == system.os)
+            && os["arch"]
+                .as_str()
+                .is_none_or(|arch| system.arch.named(arch))
+            && rule["features"].as_object().is_none_or(|features| {
+                features
+                    .iter()
+                    .all(|(name, v)| v.as_bool() == Some(on.contains(&name.as_str())))
+            });
+        if matches {
+            allow = rule["action"] == "allow";
+        }
+    }
+    allow
+}
+
+/// Whether a library's rules let `system` use it. A library with natives may still have none for
+/// it (`native_classifier`) and keeps its jar: Mojang's own versions list macOS-less
+/// `text2speech` natives next to a jar every system's game loads.
+pub(crate) fn active(library: &Value, system: System) -> bool {
+    rules_allow(&library["rules"], system, &[])
+}
+
+/// The classifier holding a library's natives for `system`, from its `natives` map, as PolyMC
+/// reads one: the entry for this operating system and processor (`osx-arm64`) first, then
+/// the plain operating system's (`osx`, `linux`, `windows`), which only an x86 system takes,
+/// since Mojang wrote those for it. `${arch}` is this system's word size, as old versions name
+/// Windows' natives. Newer versions list each system's natives as libraries of their own
+/// (`natives-linux-arm64`), chosen by `active`'s rules.
+pub(crate) fn native_classifier(library: &Value, system: System) -> Option<String> {
+    let natives = library["natives"].as_object()?;
+    let precise = format!("{}-{}", system.os, system.arch.name());
+    let plain = (system.arch != Arch::Arm64).then_some(system.os);
+    let key = natives
+        .get(&precise)
+        .or_else(|| natives.get(plain?))?
+        .as_str()?;
+    Some(key.replace("${arch}", system.arch.bits()))
 }
 
 /// The asset index's objects, once each.
@@ -341,6 +464,7 @@ fn objects(index: &Value, dir: &Path) -> Result<Vec<File>, String> {
                 sha1: hash.to_string(),
                 size: sizes.get(hash).copied(),
                 path: dir.join("assets/objects").join(path),
+                by_size: true,
             })
         })
         .collect()
@@ -361,57 +485,125 @@ fn fetch_file(fetch: Fetch, file: &File) -> Result<Vec<u8>, String> {
     }
 }
 
-/// Downloads the files not already there, `jobs` at a time, with a line every second; stops at
-/// the first error, or between files once `cancel` is set.
+/// The most times a file is tried: the first pass and three more, as PolyMC's `NetJob` does.
+const TRIES: usize = 4;
+
+/// How many failed files a message names before it says `… and N more`.
+const NAMED: usize = 8;
+
+/// Why `fetch_all` stopped.
+enum Stop {
+    /// `cancel` was set: nothing is retried.
+    Cancelled,
+    /// What still failed after every try, one `url why` line per file.
+    Failed(Vec<String>),
+}
+
+impl Stop {
+    fn message(self) -> String {
+        match self {
+            Stop::Cancelled => CANCELLED.to_string(),
+            Stop::Failed(failed) => describe(&failed),
+        }
+    }
+}
+
+/// The failed files as one message: the only one's line, or the first few of them.
+fn describe(failed: &[String]) -> String {
+    let [only] = failed else {
+        let mut text = format!("{} files failed after {TRIES} tries:", failed.len());
+        for line in failed.iter().take(NAMED) {
+            text += &format!("\n    {line}");
+        }
+        if failed.len() > NAMED {
+            text += &format!("\n    … and {} more", failed.len() - NAMED);
+        }
+        return text;
+    };
+    only.clone()
+}
+
+/// Whether `file` is there and whole: an asset (`by_size`) by its size, as every write is
+/// atomic, anything else by its sha1.
+fn present(file: &File) -> bool {
+    match file.size.filter(|_| file.by_size) {
+        Some(size) => fs::metadata(&file.path).is_ok_and(|m| m.is_file() && m.len() == size),
+        None => sha1_file(&file.path).as_ref() == Some(&file.sha1),
+    }
+}
+
+/// Downloads the files not already there, `jobs` at a time, with a line every second. Files that
+/// fail are tried again, up to `TRIES` times in all, before the download fails with every one
+/// of them; `cancel` stops it between files, at once and for good.
 fn fetch_all(
     files: &[File],
     jobs: usize,
     fetch: Fetch,
     cancel: &AtomicBool,
     log: &dyn Fn(String),
-) -> Result<(), String> {
-    fetch_each(files, jobs, fetch, cancel, log, true)
+) -> Result<(), Stop> {
+    let done = AtomicUsize::new(0);
+    DONE.store(0, Relaxed);
+    TOTAL.store(files.len(), Relaxed);
+    let mut pending: Vec<&File> = files.iter().collect();
+    let mut round = 1;
+    let result = loop {
+        let (failed, stopped) = pass(&pending, jobs, fetch, cancel, log, &done);
+        if stopped {
+            break Err(Stop::Cancelled);
+        }
+        if failed.is_empty() {
+            break Ok(());
+        }
+        if round == TRIES {
+            break Err(Stop::Failed(failed.into_iter().map(|(_, e)| e).collect()));
+        }
+        round += 1;
+        log(format!(
+            "{} files failed; trying them again (try {round} of {TRIES})",
+            failed.len()
+        ));
+        pending = failed.iter().map(|(i, _)| pending[*i]).collect();
+    };
+    TOTAL.store(0, Relaxed);
+    result
 }
 
-/// `fetch_all`, which with `stop_on_error` false goes on past a file that fails and reports how
-/// many did, with the first one's error, once the rest are done.
-fn fetch_each(
-    files: &[File],
+/// One pass over `files`: the ones that failed, as their place in `files` and why, in order, and
+/// whether `cancel` stopped it before the end.
+fn pass(
+    files: &[&File],
     jobs: usize,
     fetch: Fetch,
     cancel: &AtomicBool,
     log: &dyn Fn(String),
-    stop_on_error: bool,
-) -> Result<(), String> {
-    let errors = AtomicUsize::new(0);
+    done: &AtomicUsize,
+) -> (Vec<(usize, String)>, bool) {
     let next = AtomicUsize::new(0);
-    let done = AtomicUsize::new(0);
-    let failed = Mutex::new(None);
-    DONE.store(0, Relaxed);
-    TOTAL.store(files.len(), Relaxed);
+    let stopped = AtomicBool::new(false);
+    let failed = Mutex::new(Vec::new());
     std::thread::scope(|scope| {
         let workers: Vec<_> = (0..jobs.clamp(1, files.len().max(1)))
             .map(|_| {
-                scope.spawn(|| {
-                    while let Some(file) = files.get(next.fetch_add(1, Relaxed)) {
-                        if stop_on_error && failed.lock().unwrap().is_some() {
-                            break;
-                        }
-                        if cancel.load(Relaxed) {
-                            failed.lock().unwrap().get_or_insert(CANCELLED.to_string());
-                            break;
-                        }
-                        if sha1_file(&file.path).as_ref() != Some(&file.sha1) {
-                            let got = fetch_file(fetch, file)
-                                .map_err(|e| format!("{} {e}", file.url))
-                                .and_then(|body| write_file(&file.path, &body));
-                            if let Err(e) = got {
-                                errors.fetch_add(1, Relaxed);
-                                failed.lock().unwrap().get_or_insert(e);
-                            }
-                        }
-                        DONE.store(done.fetch_add(1, Relaxed) + 1, Relaxed);
+                scope.spawn(|| loop {
+                    let i = next.fetch_add(1, Relaxed);
+                    let Some(&file) = files.get(i) else {
+                        break;
+                    };
+                    if cancel.load(Relaxed) {
+                        stopped.store(true, Relaxed);
+                        break;
                     }
+                    if !present(file) {
+                        let got = fetch_file(fetch, file)
+                            .map_err(|e| format!("{} {e}", file.url))
+                            .and_then(|body| write_file(&file.path, &body));
+                        if let Err(e) = got {
+                            failed.lock().unwrap().push((i, e));
+                            continue;
+                        }
+                    }
+                    DONE.store(done.fetch_add(1, Relaxed) + 1, Relaxed);
                 })
             })
             .collect();
@@ -420,20 +612,17 @@ fn fetch_each(
             std::thread::sleep(Duration::from_millis(100));
             waited += 1;
             if waited % 10 == 0 {
-                log(format!("{} of {} files", done.load(Relaxed), files.len()));
+                log(format!(
+                    "{} of {} files",
+                    done.load(Relaxed),
+                    TOTAL.load(Relaxed)
+                ));
             }
         }
     });
-    TOTAL.store(0, Relaxed);
-    match failed.into_inner().unwrap() {
-        Some(e) if !stop_on_error && e != CANCELLED => Err(format!(
-            "{} of {} files failed, the first: {e}",
-            errors.load(Relaxed),
-            files.len()
-        )),
-        Some(e) => Err(e),
-        None => Ok(()),
-    }
+    let mut failed = failed.into_inner().unwrap();
+    failed.sort_unstable_by_key(|(i, _)| *i);
+    (failed, stopped.into_inner())
 }
 
 #[cfg(test)]

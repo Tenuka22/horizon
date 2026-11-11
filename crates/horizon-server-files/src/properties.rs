@@ -32,6 +32,25 @@ pub enum AuthProvider {
     Elyby,
 }
 
+impl AuthProvider {
+    /// The `auth-provider` value (absent: Mojang); anything but `mojang` or `elyby` is an error.
+    pub fn parse(value: Option<&str>) -> Result<Self, String> {
+        match value {
+            None | Some("mojang") => Ok(Self::Mojang),
+            Some("elyby") => Ok(Self::Elyby),
+            Some(other) => Err(format!("auth-provider must be mojang or elyby, not {other}")),
+        }
+    }
+
+    /// The property's value.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Mojang => "mojang",
+            Self::Elyby => "elyby",
+        }
+    }
+}
+
 /// Every value DedicatedServerProperties reads, in declaration order.
 #[derive(Clone, Debug)]
 pub struct ServerProperties {
@@ -261,21 +280,8 @@ impl ServerProperties {
         let mut warnings = Vec::new();
         let online_mode = r.boolean("online-mode", true);
         let prevent_proxy_connections = r.boolean("prevent-proxy-connections", false);
-        let auth_provider = match r.raw("auth-provider").as_deref() {
-            None | Some("mojang") => AuthProvider::Mojang,
-            Some("elyby") => AuthProvider::Elyby,
-            Some(other) => {
-                return Err(format!("auth-provider must be mojang or elyby, not {other}"));
-            }
-        };
-        r.p.put(
-            "auth-provider",
-            match auth_provider {
-                AuthProvider::Mojang => "mojang",
-                AuthProvider::Elyby => "elyby",
-            }
-            .to_owned(),
-        );
+        let auth_provider = AuthProvider::parse(r.raw("auth-provider").as_deref())?;
+        r.p.put("auth-provider", auth_provider.name().to_owned());
         let server_ip = r.string("server-ip", "");
         let allow_flight = r.boolean("allow-flight", false);
         let motd = r.string("motd", "A Minecraft Server");
@@ -682,7 +688,8 @@ mod tests {
                 .contains("\nmanagement-server-secret=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n")
         );
         assert!(stored.ends_with("\nview-distance=10\nwhite-list=true\n"));
-        assert_eq!(stored.lines().count(), 71);
+        // Vanilla's 71 lines, and Horizon's own `auth-provider`.
+        assert_eq!(stored.lines().count(), 72);
         assert!(p.random_seed);
         assert_eq!(p.seed, 7);
     }

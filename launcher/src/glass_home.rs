@@ -417,7 +417,7 @@ impl Launcher {
                     Some(_) => (tr("Update"), "download-04"),
                     None => (tr("Play"), "play"),
                 };
-                let press = play_press(ready, self.owner, false);
+                let press = play_press(ready, self.signed_in, false);
                 let main = body(label.into(), icon).id("play").cursor_pointer();
                 let main = match (&update, press) {
                     (Some(_), _) => main.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {

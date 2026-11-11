@@ -1,16 +1,18 @@
-//! The owner gate from the outside: with no account that owns Minecraft: Java Edition in the
-//! launcher, neither `horizon-launcher play` nor the MCP server's play starts the game.
+//! The account gate from the outside: with no signed-in Ely.by account in the launcher, neither
+//! `horizon-launcher play` nor the MCP server's play starts the game.
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-const REFUSED: &str = "Sign in with a Microsoft account that owns Minecraft: Java Edition to play.";
+const REFUSED: &str = "Sign in with an Ely.by account to play.";
 
 /// Fresh homes with one installed (not prepared) version and an offline name from an older
 /// launcher, as a player who played offline before the gate has.
 fn home(name: &str) -> PathBuf {
-    let root =
-        std::env::temp_dir().join(format!("horizon-owner-gate-{name}-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!(
+        "horizon-account-gate-{name}-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&root);
     let version = root.join("launcher/versions/v2026.10.27.01");
     std::fs::create_dir_all(&version).unwrap();
@@ -34,8 +36,7 @@ fn launcher(root: &Path, args: &[&str]) -> Command {
         .env("HORIZON_NO_AUDIO", "1")
         .env("HORIZON_TELEMETRY_URL", "off")
         // Memory only: the test never reads the player's keychain.
-        .env("HORIZON_NO_KEYCHAIN", "1")
-        .env("HORIZON_MSA_CLIENT_ID", "test-client");
+        .env("HORIZON_NO_KEYCHAIN", "1");
     cmd
 }
 
@@ -44,7 +45,7 @@ fn text(out: &Output) -> String {
 }
 
 #[test]
-fn the_cli_refuses_to_play_without_an_owner() {
+fn the_cli_refuses_to_play_without_an_account() {
     let root = home("cli");
     let out = launcher(&root, &["play"]).output().unwrap();
     let said = text(&out);
@@ -59,7 +60,7 @@ fn the_cli_refuses_to_play_without_an_owner() {
 }
 
 #[test]
-fn the_mcp_server_refuses_to_play_without_an_owner() {
+fn the_mcp_server_refuses_to_play_without_an_account() {
     let root = home("mcp");
     let mut child = launcher(&root, &["mcp"])
         .stdin(Stdio::piped())

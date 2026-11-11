@@ -40,12 +40,19 @@ fn create_asks_init_and_config_set() {
     };
     assert_eq!(
         init_args(&open, "old", 25565).join(" "),
-        "init --yes --world old --port 25565 --no-whitelist"
+        "init --yes --world old --port 25565 --no-whitelist --auth-provider elyby"
     );
     assert_eq!(
         settings_args(&spec, 8131).join(" "),
         "config set world.game_mode=survival world.difficulty=normal server.max_players=10 \
          server.motd=Friends panel.bind=127.0.0.1:8131"
+    );
+    // Accounts are checked (the default): Ely.by players can only join a server that verifies them
+    // through Ely.by, so the server is told to (`auth-provider`).
+    assert_eq!(
+        settings_args(&open, 8131).join(" "),
+        "config set world.game_mode=survival world.difficulty=normal server.max_players=10 \
+         server.motd=My server panel.bind=127.0.0.1:8131 properties.auth-provider=elyby"
     );
 }
 

@@ -4,7 +4,7 @@
 //! come from its `horizon-ctl` as `game_*` (game_tools.rs).
 use crate::cli_tools;
 use crate::game_tools::{self, GameTools};
-use horizon_launcher::account::{self, Accounts, SignIn, SignInState};
+use horizon_launcher::account::{self, Accounts};
 use horizon_launcher::backend::{self, Job, Logged};
 use horizon_launcher::instances;
 use serde_json::{json, Value};
@@ -23,13 +23,12 @@ fn server() -> horizon_mcp::Server<'static> {
 struct Session {
     server: Option<Logged>,
     client: Option<Logged>,
-    sign_in: Option<SignIn>,
     /// The selected version's `horizon-ctl mcp`, once a version is installed.
     game: Option<GameTools>,
 }
 
 /// The tools the session runs itself, under their CLI names: they keep a process (the game, a
-/// server) or a sign-in going between calls. Every other CLI command is generated (cli_tools.rs).
+/// server) going between calls. Every other CLI command is generated (cli_tools.rs).
 fn session_tools() -> Value {
     let version = json!({ "type": "string", "description": "An installed version tag such as v2026.10.13. Default: the selected version (play: the instance's own first)." });
     let none = json!({ "type": "object", "properties": {} });
@@ -50,8 +49,7 @@ fn session_tools() -> Value {
         { "name": "server_log", "description": "The most recent lines of the server's console.",
           "inputSchema": { "type": "object", "properties": { "lines": { "type": "integer", "minimum": 1, "maximum": 2000, "description": "How many lines (default 50)." } } } },
         { "name": "server_stop", "description": "Stop the server started with server cleanly (it saves the world), killing it if it does not stop within 30 seconds.", "inputSchema": none },
-        { "name": "account_list", "description": "The Microsoft accounts signed in to the launcher (names and UUIDs, never tokens), which one the game plays as (none = the first), and how a sign-in started with account_sign_in is going. CLI: horizon-launcher account list", "inputSchema": none },
-        { "name": "account_sign_in", "description": "Start signing in a Microsoft account: returns a link and a code the player enters in their browser. The sign-in finishes in the background; check it with account_list. Only when the player asks to sign in. CLI: horizon-launcher account sign-in", "inputSchema": none },
+        { "name": "account_list", "description": "The Ely.by accounts signed in to the launcher (names and UUIDs, never tokens), which one the game plays as (none = the first), and whether a sign-in is there for play (signed_in). Signing in takes the player's password, so the player does it: horizon-launcher account sign-in, or Settings in the launcher window. CLI: horizon-launcher account list", "inputSchema": none },
     ])
 }
 
@@ -195,51 +193,17 @@ impl Session {
             }
             "account_list" => {
                 let accounts = Accounts::load();
-                let sign_in = self.sign_in.as_ref().map(|s| match s.state() {
-                    SignInState::Starting => json!({ "state": "starting" }),
-                    SignInState::Working(phase) => json!({ "state": "working", "phase": phase }),
-                    SignInState::Code(c) => json!({ "state": "waiting for the player", "link": c.verification_uri, "code": c.user_code }),
-                    SignInState::Done(Ok(a)) => json!({ "state": "signed in", "name": a.name }),
-                    SignInState::Done(Err(e)) => json!({ "state": "failed", "error": e }),
-                });
                 Ok(serde_json::to_string_pretty(&json!({
                     "accounts": accounts.accounts.iter().map(|a| json!({ "name": a.name, "uuid": a.uuid, "authentication": account::session::status(account::store(), &a.uuid) })).collect::<Vec<_>>(),
                     "plays_as": accounts.selected().map(|a| a.name.clone()),
-                    "sign_in_configured": account::client_id().is_some(),
                     // Sign-ins outlast the launcher: in the keychain, or in the secrets file
                     // where it refused them (`secrets_file`: the file holds a sign-in).
                     "keychain": account::store().persistent(),
                     "secrets_file": account::in_secrets_file(),
-                    // Play needs an account that owns the game (the owner gate).
-                    "owner": accounts.has_owner(account::store()),
-                    "sign_in": sign_in,
+                    // Play needs a signed-in Ely.by account.
+                    "signed_in": accounts.has_session(account::store()),
                 }))
                 .unwrap())
-            }
-            "account_sign_in" => {
-                account::client_id().ok_or(account::NOT_CONFIGURED)?;
-                if let Some(s) = self.sign_in.take() {
-                    s.cancel();
-                }
-                let sign_in = SignIn::start();
-                let deadline = std::time::Instant::now() + Duration::from_secs(30);
-                let state = loop {
-                    match sign_in.state() {
-                        SignInState::Starting if std::time::Instant::now() < deadline => {
-                            std::thread::sleep(Duration::from_millis(100))
-                        }
-                        state => break state,
-                    }
-                };
-                self.sign_in = Some(sign_in);
-                match state {
-                    SignInState::Code(c) => Ok(format!(
-                        "Ask the player to open {} and enter the code {}. Then check accounts.",
-                        c.verification_uri, c.user_code
-                    )),
-                    SignInState::Done(Err(e)) => Err(e),
-                    _ => Err("Microsoft did not answer. Try again.".into()),
-                }
             }
             _ => match cli_tools::all().into_iter().find(|t| t.name == name) {
                 Some(tool) => tool.call(args),
@@ -318,7 +282,6 @@ pub fn serve() -> Result<(), String> {
     let mut session = Session {
         server: None,
         client: None,
-        sign_in: None,
         game: None,
     };
     let served = server().serve(|method, params| session.handle(method, params));

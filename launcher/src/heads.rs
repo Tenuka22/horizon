@@ -119,55 +119,59 @@ pub fn profile_face(
     (face, failed.get())
 }
 
-/// How long a skin URL the session server gave is trusted before it is asked again (a skin
-/// changed on minecraft.net shows within a day).
-const SESSION_SKIN_FOR: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
+/// How long a skin URL Ely.by's skin system gave is trusted before it is asked again (a skin
+/// changed on ely.by shows within a day).
+const SKIN_URL_FOR: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
 
-/// The skin URL Mojang's public session server lists for the profile `uuid` (32 hex digits), kept
-/// beside the cached skins for [`SESSION_SKIN_FOR`]. None when it has none (the default skin) or
-/// can't be reached.
-fn session_skin(
-    uuid: &str,
-    cache: &Path,
-    fetch: &dyn Fn(&str) -> Option<Vec<u8>>,
-) -> Option<String> {
-    use base64::Engine;
-    if uuid.len() != 32 || !uuid.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return None;
-    }
-    let file = cache.join(format!("{uuid}.skin-url"));
+/// The skin URL Ely.by's skin system lists for the player `name`, kept beside the cached skins for
+/// [`SKIN_URL_FOR`]. None when it has none (the default skin) or can't be reached.
+fn ely_skin(name: &str, cache: &Path, fetch: &dyn Fn(&str) -> Option<Vec<u8>>) -> Option<String> {
+    let key: String = name.bytes().map(|b| format!("{b:02x}")).collect();
+    let file = cache.join(format!("ely-{key}.skin-url"));
     let fresh = std::fs::metadata(&file)
         .and_then(|m| m.modified())
         .ok()
         .and_then(|t| t.elapsed().ok())
-        .is_some_and(|age| age < SESSION_SKIN_FOR);
+        .is_some_and(|age| age < SKIN_URL_FOR);
     if fresh {
         if let Ok(url) = std::fs::read_to_string(&file) {
             return (!url.is_empty()).then_some(url);
         }
     }
-    let body = fetch(&format!(
-        "https://sessionserver.mojang.com/session/minecraft/profile/{uuid}"
+    let body = fetch(&crate::account::elyby::textures_url(
+        &crate::account::elyby::skins_base(),
+        name,
     ))?;
-    let profile: serde_json::Value = serde_json::from_slice(&body).ok()?;
-    let textures = profile["properties"]
-        .as_array()?
-        .iter()
-        .find(|p| p["name"] == "textures")?["value"]
-        .as_str()?;
-    let textures = base64::engine::general_purpose::STANDARD
-        .decode(textures)
-        .ok()?;
-    let textures: serde_json::Value = serde_json::from_slice(&textures).ok()?;
-    // No SKIN: the profile wears its default skin; remembered as such (empty) too.
-    let url = textures["textures"]["SKIN"]["url"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
+    // An empty answer (204): the player has no skin and wears the default one; remembered too.
+    let url = if body.is_empty() {
+        String::new()
+    } else {
+        let textures: serde_json::Value = serde_json::from_slice(&body).ok()?;
+        textures["SKIN"]["url"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned()
+    };
     if std::fs::create_dir_all(cache).is_ok() {
         let _ = std::fs::write(&file, &url);
     }
     (!url.is_empty()).then_some(url)
+}
+
+/// The skin hosts the launcher fetches from: Minecraft's textures (the skin system proxies
+/// Mojang's) and Ely.by's own storage. Never send credentials to a skin host.
+fn skin_host_ok(url: &str) -> bool {
+    const HOSTS: [&str; 4] = [
+        "https://textures.minecraft.net/texture/",
+        "http://textures.minecraft.net/texture/",
+        "https://ely.by/storage/skins/",
+        "http://ely.by/storage/skins/",
+    ];
+    HOSTS
+        .iter()
+        .find_map(|host| url.strip_prefix(host))
+        .map(|file| file.strip_suffix(".png").unwrap_or(file))
+        .is_some_and(|hash| !hash.is_empty() && hash.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
 fn profile_face_with(
@@ -177,35 +181,27 @@ fn profile_face_with(
     fetch: &dyn Fn(&str) -> Option<Vec<u8>>,
 ) -> Option<Vec<[u8; 4]>> {
     use sha1::{Digest, Sha1};
-    // An account saved without its skin (signed in before skins were kept, or its profile
-    // answered without one) asks Mojang's session server, which needs no token.
+    // An account saved without its skin (signed in before skins were kept, or the skin system
+    // didn't answer then) asks the skin system, which needs no token.
     let url = account
         .skin
         .as_ref()
         .map(|(url, _)| url.clone())
-        .or_else(|| session_skin(&account.uuid, cache, fetch));
-    if let Some(url) = &url {
-        // Public Minecraft texture URLs only; never send credentials to a skin host.
-        let texture = url
-            .strip_prefix("https://textures.minecraft.net/texture/")
-            .or_else(|| url.strip_prefix("http://textures.minecraft.net/texture/"));
-        if texture
-            .is_some_and(|hash| !hash.is_empty() && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+        .or_else(|| ely_skin(&account.name, cache, fetch));
+    if let Some(url) = url.filter(|url| skin_host_ok(url)) {
+        let file = cache.join(format!("{:x}.png", Sha1::digest(url.as_bytes())));
+        if let Some(face) = std::fs::read(&file)
+            .ok()
+            .and_then(|png| profile_pixels(&png))
         {
-            let file = cache.join(format!("{:x}.png", Sha1::digest(url.as_bytes())));
-            if let Some(face) = std::fs::read(&file)
-                .ok()
-                .and_then(|png| profile_pixels(&png))
-            {
-                return Some(face);
-            }
-            if let Some(png) = fetch(url) {
-                if let Some(face) = profile_pixels(&png) {
-                    if std::fs::create_dir_all(cache).is_ok() {
-                        let _ = std::fs::write(file, png);
-                    }
-                    return Some(face);
+            return Some(face);
+        }
+        if let Some(png) = fetch(&url) {
+            if let Some(face) = profile_pixels(&png) {
+                if std::fs::create_dir_all(cache).is_ok() {
+                    let _ = std::fs::write(file, png);
                 }
+                return Some(face);
             }
         }
     }
@@ -260,7 +256,6 @@ mod tests {
         skin.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
             .unwrap();
         let mut account = crate::account::Account {
-            provider: crate::account::Provider::Microsoft,
             name: "TestPlayer".into(),
             uuid: "00000000000000000000000000000000".into(),
             skin: Some((
@@ -298,10 +293,9 @@ mod tests {
     }
 
     #[test]
-    fn an_account_saved_without_its_skin_asks_the_session_server() {
-        use base64::Engine;
+    fn an_account_saved_without_its_skin_asks_ely_bys_skin_system() {
         let dir = std::env::temp_dir().join(format!(
-            "hz-profile-session-{}-{}",
+            "hz-profile-ely-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -313,42 +307,50 @@ mod tests {
         let mut png = Vec::new();
         skin.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
             .unwrap();
-        let uuid = "069a79f444e94726a5befca90e38aaf5";
-        let textures = base64::engine::general_purpose::STANDARD.encode(
-            r#"{"textures":{"SKIN":{"url":"http://textures.minecraft.net/texture/ab12"}}}"#,
-        );
-        let session = format!(
-            r#"{{"id":"{uuid}","name":"Notch","properties":[{{"name":"textures","value":"{textures}"}}]}}"#
-        );
+        let skin_url = "http://ely.by/storage/skins/69c6740d2993e5d6f6a7fc92420efc29.png";
+        let answer = format!(r#"{{"SKIN":{{"url":"{skin_url}"}}}}"#);
         let asked = std::cell::RefCell::new(Vec::new());
         let fetch = |url: &str| {
             asked.borrow_mut().push(url.to_owned());
-            if url.contains("sessionserver.mojang.com") {
-                Some(session.clone().into_bytes())
-            } else if url == "http://textures.minecraft.net/texture/ab12" {
+            if url.ends_with("/textures/ErickSkrauch") {
+                Some(answer.clone().into_bytes())
+            } else if url == skin_url {
                 Some(png.clone())
             } else {
                 None
             }
         };
         let account = crate::account::Account {
-            provider: crate::account::Provider::Microsoft,
-            name: "Notch".into(),
-            uuid: uuid.into(),
+            name: "ErickSkrauch".into(),
+            uuid: "ffc8fdc95824509e8a57c99b940fb996".into(),
             skin: None,
             cape: None,
         };
-        // No default skins in `resources`: the face can only be the session's skin.
+        // No default skins in `resources`: the face can only be the skin system's skin.
         let none = dir.join("no-resources");
         let head = profile_face_with(&account, &dir, &none, &fetch).unwrap();
         assert_eq!(head[0], [90, 80, 70, 255]);
-        assert_eq!(
-            asked.borrow()[0],
-            format!("https://sessionserver.mojang.com/session/minecraft/profile/{uuid}")
+        assert!(
+            asked.borrow()[0].ends_with("/textures/ErickSkrauch"),
+            "{:?}",
+            asked.borrow()
         );
         // Asked once: the URL and the skin are kept.
         asked.borrow_mut().clear();
         assert_eq!(profile_face_with(&account, &dir, &none, &fetch), Some(head));
+        assert!(asked.borrow().is_empty(), "{:?}", asked.borrow());
+        // A player with no skin (an empty answer) is remembered as such: no second question.
+        let plain = crate::account::Account {
+            name: "Plain".into(),
+            ..account.clone()
+        };
+        let empty = |url: &str| {
+            asked.borrow_mut().push(url.to_owned());
+            Some(Vec::new())
+        };
+        assert!(profile_face_with(&plain, &dir, &none, &empty).is_none());
+        asked.borrow_mut().clear();
+        assert!(profile_face_with(&plain, &dir, &none, &empty).is_none());
         assert!(asked.borrow().is_empty(), "{:?}", asked.borrow());
         // Offline, with nothing kept: no face, so the launcher draws its user icon.
         let fresh = dir.join("fresh");
@@ -365,7 +367,6 @@ mod tests {
         skin.put_pixel(8, 8, image::Rgba([3, 5, 7, 255]));
         skin.save(&path).unwrap();
         let account = crate::account::Account {
-            provider: crate::account::Provider::Microsoft,
             name: "TestPlayer".into(),
             uuid: "00000000000000000000000000000000".into(),
             skin: Some((

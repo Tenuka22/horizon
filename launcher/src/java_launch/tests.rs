@@ -22,7 +22,6 @@ fn player() -> Player {
         name: "Notch".into(),
         uuid: "069a79f444e94726a5befca90e38aaf5".into(),
         token: "mc-token".into(),
-        xuid: "2535400000000000".into(),
     }
 }
 
@@ -70,6 +69,7 @@ fn a_modern_version_gets_its_rules_placeholders_and_classpath() {
     let dir = scratch("modern");
     let (mc, game, natives) = (dir.join("mc"), dir.join("game"), dir.join("natives"));
     let java = dir.join("java");
+    let agent = dir.join("authlib-injector.jar");
     let p = player();
     let extra = vec!["-XX:+UseZGC".to_string()];
     let launch = |os| Launch {
@@ -83,6 +83,7 @@ fn a_modern_version_gets_its_rules_placeholders_and_classpath() {
         os,
         window: None,
         server: None,
+        agent: Some(&agent),
     };
     let cmd = command(&modern(), &launch("osx")).unwrap();
     let a = args(&cmd);
@@ -91,7 +92,9 @@ fn a_modern_version_gets_its_rules_placeholders_and_classpath() {
             .position(|x| x == s)
             .unwrap_or_else(|| panic!("no {s} in {a:?}"))
     };
-    assert_eq!(a[0], "-Xmx6144M");
+    // The agent that points sign-in at Ely.by is the first argument, ahead of the memory flag.
+    assert_eq!(a[0], format!("-javaagent:{}=ely.by", agent.display()));
+    assert_eq!(a[1], "-Xmx6144M");
     assert!(a.contains(&"-Dlog4j2.formatMsgNoLookups=true".into()));
     let config = under(&mc, "assets/log_configs/client-1.21.2.xml");
     assert!(a.contains(&format!("-Dlog4j.configurationFile={}", config.display())));
@@ -102,7 +105,9 @@ fn a_modern_version_gets_its_rules_placeholders_and_classpath() {
     assert_eq!(a[at("--accessToken") + 1], "mc-token");
     assert_eq!(a[at("--assetIndex") + 1], "19");
     assert_eq!(a[at("--gameDir") + 1], game.to_string_lossy());
-    assert_eq!(a[at("--userType") + 1], "msa");
+    assert_eq!(a[at("--userType") + 1], "mojang");
+    // Ely.by accounts have no Xbox user id: the placeholder is empty, never another's.
+    assert_eq!(a[at("--xuid") + 1], "");
     // Features are off: no demo, no custom size.
     assert!(!a.iter().any(|x| x == "--demo" || x == "--width"));
     let sep = if cfg!(windows) { ";" } else { ":" };
@@ -185,6 +190,7 @@ fn an_old_version_gets_its_natives_and_assets_by_name() {
         os: "osx",
         window: None,
         server: None,
+        agent: None,
     };
     let a = args(&command(&version, &launch).unwrap());
     assert_eq!(fs::read(natives.join("liblwjgl.dylib")).unwrap(), b"lib");
@@ -242,7 +248,11 @@ fn a_loader_profile_plays_on_its_game_version() {
     let version = resolve(profile, &mc).unwrap();
     assert_eq!(version["id"], "fabric-loader-0.16.9-1.21.4");
     assert_eq!(version["assetIndex"]["id"], "19", "the game's fields stay");
-    let cp = classpath(&version, &mc, "linux").unwrap();
+    let system = crate::mojang::System {
+        os: "linux",
+        arch: crate::mojang::Arch::X86_64,
+    };
+    let cp = classpath(&version, &mc, system).unwrap();
     let lib = |p: &str| mc.join("libraries").join(p);
     assert_eq!(
         cp,
@@ -270,6 +280,7 @@ fn a_loader_profile_plays_on_its_game_version() {
         os: "linux",
         window: None,
         server: None,
+        agent: None,
     };
     let a = args(&command(&version, &launch).unwrap());
     let at = |s: &str| a.iter().position(|x| x == s).unwrap();
@@ -347,6 +358,7 @@ fn a_window_size_and_a_server_to_join() {
         os: "linux",
         window,
         server,
+        agent: None,
     };
     let after = |a: &[String], flag: &str| {
         a.iter()

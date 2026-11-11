@@ -820,8 +820,8 @@ impl Game<'_> {
         ))
     }
 
-    /// `MinecraftPlayerListService.getUser`: by id, the user cache, else the session service; by name, the
-    /// user cache, else the profile service (an offline server's offline player).
+    /// `MinecraftPlayerListService.getUser`: by id, the user cache, else the session service of the server's
+    /// `auth-provider`; by name, the user cache, else the profile service (an offline server's offline player).
     fn management_user(&self, player: &Value) -> Option<NameAndId> {
         if let Some(id) = player["id"]
             .as_str()
@@ -832,7 +832,8 @@ impl Game<'_> {
                 .unwrap()
                 .as_mut()
                 .and_then(|c| c.get_by_id(id));
-            return cached.or_else(|| profiles::find_by_id(&profiles::discovery_url(), id));
+            let provider = *super::AUTH_PROVIDER.lock().unwrap();
+            return cached.or_else(|| profiles::find_by_id_of(provider, id));
         }
         self.resolve_name(player["name"].as_str()?)
     }

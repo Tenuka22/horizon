@@ -63,7 +63,7 @@ pub fn set_listed(
     answer["listed"].as_bool().ok_or_else(|| "no answer".into())
 }
 
-/// A session of the service's own for the account `name`; `join` tells Mojang that account joins
+/// A session of the service's own for the account `name`; `join` tells Ely.by that account joins
 /// the server id the service chose.
 fn sign_in(
     service: &impl Call,
@@ -90,7 +90,8 @@ fn sign_in_for(
         "POST",
         "/v1/auth/finish",
         None,
-        &json!({ "server_id": server_id, "name": name }),
+        // Every account is an Ely.by one: the service asks Ely.by's `hasJoined`.
+        &json!({ "server_id": server_id, "name": name, "provider": "elyby" }),
     )?;
     let session = finish["session"].as_str().ok_or("no session")?.to_owned();
     Ok((session, finish["expires_in"].as_u64().unwrap_or(3600)))

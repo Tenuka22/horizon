@@ -1,5 +1,5 @@
 //! The Microsoft or Ely.by account the launcher signed in, handed over in a session
-//! file (docs/microsoft-account.md), and the Minecraft services call
+//! file (docs/elyby-account.md), and the Minecraft services call
 //! online-mode servers need: authlib's MinecraftServicesSessionService.joinServer
 //! through the services discovery document. The access token stays in this
 //! process's memory: it is never logged, printed or written anywhere.
@@ -17,7 +17,9 @@ const MAX_SESSION_FILE_AGE: Duration = Duration::from_secs(120);
 /// The account service that signed the player in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Provider {
-    /// Microsoft: the services discovery document (`user_type` msa).
+    /// Mojang's services discovery document (`user_type` msa): vanilla's own online mode, kept for
+    /// the parity harnesses against vanilla servers and for `auth-provider = mojang` servers. The
+    /// launcher signs in with Ely.by only and never writes it.
     Microsoft,
     /// Ely.by: `HORIZON_ELY_AUTH` (`user_type` elyby).
     Ely,

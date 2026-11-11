@@ -410,7 +410,7 @@ in the browser; no card is ever typed into the launcher.
 
 ## The Wardrobe page (`launcher/src/wardrobe_page.rs`)
 
-A top-bar page between Servers and Versions, for the selected Microsoft account (signed out, it asks
+A top-bar page between Servers and Versions, for the selected Ely.by account (signed out, it asks
 you to sign in). It shows only when the service has a founder set to show (or with
 `HORIZON_COSMETICS=1`, for development), whatever cosmetics in the game do (`horizon_launcher::shop`): the launcher asks `GET /v1/shop` at start and every
 half hour, with no session and nothing about the player. The page shows when the set can be claimed
