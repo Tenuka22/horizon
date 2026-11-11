@@ -2028,9 +2028,13 @@ impl Launcher {
         self.begin_sign_in(None);
     }
 
-    fn re_sign_in(&mut self, uuid: &str) {
+    fn re_sign_in(&mut self, uuid: &str, cx: &mut Context<Self>) {
         if let Some(account) = self.accounts.find(uuid).cloned() {
-            self.begin_sign_in(Some(account));
+            if account.provider == account::Provider::Ely {
+                self.elyby_reopen(&account.name, cx);
+            } else {
+                self.begin_sign_in(Some(account));
+            }
         }
     }
 
@@ -4491,7 +4495,7 @@ impl Launcher {
             } else {
                 refresh.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     if needs_sign_in {
-                        this.re_sign_in(&refresh_id);
+                        this.re_sign_in(&refresh_id, cx);
                     } else {
                         this.refresh_account(refresh_id.clone());
                     }
@@ -4693,7 +4697,7 @@ impl Launcher {
             let mut actions = div().flex().gap(px(4.)).child(sign_in.on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     if let Some(uuid) = &target {
-                        this.re_sign_in(uuid);
+                        this.re_sign_in(uuid, cx);
                     } else {
                         this.start_sign_in();
                     }

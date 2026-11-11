@@ -29,6 +29,9 @@ pub const NOT_CONFIGURED: &str = "This build of the launcher has no Microsoft si
 pub const NEEDS_OWNER: &str =
     "Sign in with a Microsoft account that owns Minecraft: Java Edition to play";
 const DOES_NOT_OWN: &str = "This account doesn't own Minecraft: Java Edition.";
+/// Java Edition runs Mojang's own client, which joins Mojang's servers only.
+pub const JAVA_NEEDS_MICROSOFT: &str =
+    "Java Edition needs a Microsoft account. Ely.by accounts play in Horizon's own client.";
 const NO_PROFILE: &str =
     "This account has no Minecraft profile yet. Create one at minecraft.net, then sign in again.";
 const OTHER_PROFILE: &str =
@@ -2606,13 +2609,19 @@ fn java_player_with(
         let order = accounts.selected().into_iter().chain(&accounts.accounts);
         order
             .into_iter()
-            .find_map(|a| Some((a.clone(), secrets_in(store, &a.uuid).filter(|s| s.owns)?)))
+            .find_map(|a| {
+                let secrets = secrets_in(store, &a.uuid).filter(|s| s.owns)?;
+                (a.provider == Provider::Microsoft).then(|| (a.clone(), secrets))
+            })
     };
     let (account, secrets) = pass
         .session
         .or(pass.owner)
         .or_else(kept)
         .ok_or_else(|| NoOwner::default().to_string())?;
+    if account.provider == Provider::Ely {
+        return Err(JAVA_NEEDS_MICROSOFT.to_string());
+    }
     Ok(crate::java_launch::Player {
         name: account.name,
         uuid: account.uuid,

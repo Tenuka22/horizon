@@ -108,6 +108,14 @@ impl Launcher {
         cx.notify();
     }
 
+    /// Opens the form for an Ely.by account that must sign in again, its username filled in.
+    pub(super) fn elyby_reopen(&mut self, username: &str, cx: &mut Context<Self>) {
+        self.elyby.open = true;
+        self.elyby.error = None;
+        self.elyby.username.set(username.to_owned());
+        cx.notify();
+    }
+
     /// Closes the form unless a sign-in is running; the Cancel button is disabled meanwhile.
     pub(super) fn elyby_cancel(&mut self, cx: &mut Context<Self>) {
         if !self.elyby.busy {
