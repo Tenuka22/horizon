@@ -73,6 +73,7 @@ jobs:
       head: ${{ steps.decide.outputs.head }}
       version: ${{ steps.decide.outputs.version }}
       dry_run: ${{ steps.mode.outputs.dry_run }}
+      matrix: ${{ steps.decide.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -98,6 +99,12 @@ jobs:
             echo "release=true" >> "$GITHUB_OUTPUT"
             echo "head=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           fi
+          full='{"include":[{"name":"linux","os":"ubuntu-22.04","asset":"horizon-launcher-linux-x86_64.tar.gz","binary":"horizon-launcher"},{"name":"macos","mac":true,"asset":"horizon-launcher-macos-arm64.zip","binary":"horizon-launcher","mac_arch":"arm64"},{"name":"macos-x64","mac":true,"target":"x86_64-apple-darwin","asset":"horizon-launcher-macos-x64.zip","binary":"horizon-launcher","mac_arch":"x64"},{"name":"windows","os":"windows-latest","asset":"horizon-launcher-windows-x64.zip","binary":"horizon-launcher.exe","pe_arch":"x64","setup_asset":"horizon-launcher-setup.exe","rustflags":"-C target-feature=+crt-static"},{"name":"windows-arm64","os":"windows-11-vs2026-arm","target":"aarch64-pc-windows-msvc","asset":"horizon-launcher-windows-arm64.zip","binary":"horizon-launcher.exe","pe_arch":"arm64","setup_asset":"horizon-launcher-setup-arm64.exe","rustflags":"-C target-feature=+crt-static"}]}'
+          # Off main only the Linux build runs; main and releases build every platform.
+          if [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
+            full=$(jq -c '{include: [.include[] | select(.name == "linux")]}' <<<"$full")
+          fi
+          echo "matrix=$full" >> "$GITHUB_OUTPUT"
 
   build:
     needs: decide
@@ -109,41 +116,7 @@ jobs:
     continue-on-error: ${{ matrix.name == 'windows-arm64' }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: linux
-            os: ubuntu-22.04
-            asset: horizon-launcher-linux-x86_64.tar.gz
-            binary: horizon-launcher
-          - name: macos
-            mac: true
-            asset: horizon-launcher-macos-arm64.zip
-            binary: horizon-launcher
-            mac_arch: arm64
-          - name: macos-x64
-            mac: true
-            target: x86_64-apple-darwin
-            asset: horizon-launcher-macos-x64.zip
-            binary: horizon-launcher
-            mac_arch: x64
-          - name: windows
-            os: windows-latest
-            asset: horizon-launcher-windows-x64.zip
-            binary: horizon-launcher.exe
-            pe_arch: x64
-            setup_asset: horizon-launcher-setup.exe
-            # The C runtime linked in: without it the launcher asks for VCRUNTIME140.dll,
-            # which only the Visual C++ redistributable installs.
-            rustflags: -C target-feature=+crt-static
-          - name: windows-arm64
-            os: windows-11-vs2026-arm
-            target: aarch64-pc-windows-msvc
-            asset: horizon-launcher-windows-arm64.zip
-            binary: horizon-launcher.exe
-            pe_arch: arm64
-            setup_asset: horizon-launcher-setup-arm64.exe
-            # The C runtime linked in, so the standalone ARM64 launcher needs no redistributable.
-            rustflags: -C target-feature=+crt-static
+      matrix: ${{ fromJSON(needs.decide.outputs.matrix) }}
     runs-on: ${{ matrix.mac && (vars.MAC_RUNNER || 'ludovics-mac-mini') || matrix.os }}
     # Notarizing the app and then the .dmg can take a few minutes each.
     timeout-minutes: ${{ matrix.mac && 60 || 40 }}
