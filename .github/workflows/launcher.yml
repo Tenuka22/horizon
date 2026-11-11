@@ -181,7 +181,7 @@ jobs:
       - name: Linux libraries GPUI links to
         if: runner.os == 'Linux'
         run: |
-          tools/ci/apt-install.sh libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev libfontconfig-dev libvulkan-dev libasound2-dev patchelf
+          "$GITHUB_WORKSPACE/tools/ci/apt-install.sh" libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev libfontconfig-dev libvulkan-dev libasound2-dev patchelf
       - name: Metal shaders compiled now, or at run time without the Metal toolchain
         # GPUI compiles its Metal shaders when it builds; the Mac mini has Xcode without the Metal toolchain
         # (xcodebuild -downloadComponent MetalToolchain), so there they are compiled when the launcher starts.
