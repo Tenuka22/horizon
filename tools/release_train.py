@@ -236,8 +236,13 @@ def changed_paths(commit):
 
 
 def pull_request(number):
-    data = gh_json("pr", "view", str(number), "--repo", REPO, "--json",
-                   "number,title,url,labels,closingIssuesReferences,author,mergedAt")
+    """The pull request, or None when this repository has none by that number: a fork's history holds the
+    upstream's merges, whose numbers are the upstream's."""
+    answer = run("gh", "pr", "view", str(number), "--repo", REPO, "--json",
+                 "number,title,url,labels,closingIssuesReferences,author,mergedAt", check=False)
+    if not answer:
+        return None
+    data = json.loads(answer)
     return {
         "number": data["number"],
         "title": data["title"].strip(),
@@ -468,7 +473,12 @@ def gather(kind, head, releases=None):
     paths."""
     releases = published_releases() if releases is None else releases
     last = last_release(releases, kind)
-    base = last["tag_name"] if last else run("git", "rev-list", "--max-parents=0", head).split()[0]
+    keep = is_game_tag if kind == "game" else is_launcher_tag
+    # A repository with no release of its own yet (a fork) starts from the newest tag its history carries,
+    # not from the first commit: that would ask GitHub about every merge since.
+    kept = [tag for tag in run("git", "tag", "--list", "--merged", head).split() if keep(tag)]
+    base = last["tag_name"] if last else max(kept, key=tag_key) if kept else run(
+        "git", "rev-list", "--max-parents=0", head).split()[0]
     return last, merged_between(kind, base, head)
 
 
@@ -478,6 +488,8 @@ def merged_between(kind, base, head):
     prs = []
     for number, commit in merged_pull_requests(base, head):
         pr = pull_request(number)
+        if pr is None:
+            continue
         pr["paths"] = [path for path in changed_paths(commit) if player_facing(path, kind, exporter_paths)]
         prs.append(pr)
     return prs
