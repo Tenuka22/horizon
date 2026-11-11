@@ -354,6 +354,11 @@ pub fn command(dir: &Path, args: &[&str]) -> Result<Command, String> {
         "The server programs aren't set up yet: create a server, or press Prepare on its page.",
     )?;
     let mut cmd = crate::process::command(program);
+    // The Ely.by service an `auth-provider=elyby` server asks (`hasJoined`, and the names it
+    // resolves): the launcher's own override wins.
+    if std::env::var_os("HORIZON_ELY_AUTH").is_none() {
+        cmd.env("HORIZON_ELY_AUTH", horizon_addresses::ELY_AUTH);
+    }
     cmd.arg("--dir").arg(dir).args(args);
     Ok(cmd)
 }
@@ -580,9 +585,9 @@ pub struct NewServer {
     pub max_players: u32,
     /// Only listed players (and operators) may join.
     pub friends_only: bool,
-    /// Check players' Minecraft accounts: they must sign in with Microsoft. On by default; an offline
-    /// server is a security risk, so it is turned off only per server (`--offline`, or the server's
-    /// settings page).
+    /// Check players' accounts: they must sign in with Ely.by (the server verifies them there,
+    /// `auth-provider=elyby`). On by default; an offline server is a security risk, so it is turned
+    /// off only per server (`--offline`, or the server's settings page).
     pub check_accounts: bool,
     /// Who may join first (whitelisted), and the first of them becomes an operator.
     pub players: Vec<String>,
@@ -677,7 +682,10 @@ pub fn init_args(spec: &NewServer, world: &str, port: u16) -> Vec<String> {
     } else {
         "--no-whitelist".into()
     });
-    if !spec.check_accounts {
+    if spec.check_accounts {
+        // The names given below are looked up at Ely.by, whose accounts the server verifies.
+        args.extend(["--auth-provider".into(), AUTH_PROVIDER.into()]);
+    } else {
         args.push("--offline".into());
     }
     for p in &spec.players {
@@ -691,7 +699,7 @@ pub fn init_args(spec: &NewServer, world: &str, port: u16) -> Vec<String> {
 
 /// The `horizon-server config set` arguments that finish a new server.
 pub fn settings_args(spec: &NewServer, panel_port: u16) -> Vec<String> {
-    vec![
+    let mut args = vec![
         "config".into(),
         "set".into(),
         format!("world.game_mode={}", spec.game_mode),
@@ -699,8 +707,16 @@ pub fn settings_args(spec: &NewServer, panel_port: u16) -> Vec<String> {
         format!("server.max_players={}", spec.max_players.clamp(1, 1000)),
         format!("server.motd={}", spec.name.trim()),
         format!("panel.bind=127.0.0.1:{panel_port}"),
-    ]
+    ];
+    // Ely.by players can only join a server that verifies accounts through Ely.by.
+    if spec.check_accounts {
+        args.push(format!("properties.auth-provider={AUTH_PROVIDER}"));
+    }
+    args
 }
+
+/// The `auth-provider` a launcher-made server with account checks verifies players with.
+pub const AUTH_PROVIDER: &str = "elyby";
 
 /// Creates a server: its folder, the world (a copy when asked), `init` and the settings, then adds it to
 /// the list. `tag` is the installed version whose programs and game files it uses when none are set up.

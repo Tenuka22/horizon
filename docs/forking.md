@@ -47,22 +47,8 @@ gate guards.
 - The `horizon` brand reply to a Horizon server, for its protocol extensions (`net.rs`).
 - Agent control (`--control`, `horizon-ctl`), controllers, HDR, shader packs.
 
-## Microsoft sign-in in a fork
+## Sign-in in a fork
 
-Horizon's Microsoft sign-in runs under one Azure app registration, whose client ID release builds
-read from the repository variable `HORIZON_MSA_CLIENT_ID` (docs/microsoft-account.md). That
-registration, and Mojang's approval of it for the Minecraft services, are for Horizon's own builds
-only. They do not pass to forks, ports or derived launchers, whatever their licence.
-
-- A fork, port or derived launcher that signs players in registers its own Azure app and applies for
-  its own approval from Mojang/Microsoft (the App ID review in docs/microsoft-account.md).
-- Its builds must not ship, embed, download or otherwise fetch Horizon's client ID, and must not tell
-  players to set `HORIZON_MSA_CLIENT_ID` to it. Sign-ins made with it would appear to Microsoft and
-  Mojang as Horizon's, which the project does not accept.
-- The MIT licence covers the code, not the app registration: copying the code gives no right to use
-  Horizon's client ID.
-- Horizon may restrict, rotate or revoke its client ID at any time, which breaks every build that
-  uses it, and reports misuse to Microsoft, Mojang and the hosting platform.
-
-A build made from source without a client ID of its own says that sign-in is not configured; that is
-the expected state for a fork until its own app is approved.
+The launcher signs in with Ely.by accounts only (docs/elyby-account.md). Ely.by needs no application
+registration, so a fork or derived launcher has no client ID to obtain, set or avoid: it builds and
+signs in as it is. Game files come from Mojang's public CDN, with no ownership check.

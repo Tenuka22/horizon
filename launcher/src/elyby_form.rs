@@ -55,6 +55,11 @@ impl ElyForm {
         }
     }
 
+    /// Whether a sign-in is running now (its thread holds the password).
+    pub(super) fn busy(&self) -> bool {
+        self.busy
+    }
+
     fn edit(&mut self, which: Which) -> &mut LineEdit {
         match which {
             Which::Username => &mut self.username,
@@ -178,9 +183,10 @@ impl Launcher {
             Ok(_) => {
                 self.elyby.close();
                 self.accounts = Accounts::load();
+                self.account_error = None;
                 self.load_profile_heads();
                 self.load_auth_statuses(false);
-                self.client_error = None;
+                self.signed_in_now();
             }
             // The password was not kept: the user enters it again with the code.
             Err(e) if e == account::elyby::CODE_NEEDED => self.elyby.need_code = true,

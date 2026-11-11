@@ -1,18 +1,18 @@
 //! Settings' Account card in the glass look, as the mockup's: who plays now (a big head, the
-//! name, how), and the Microsoft card beside it with its white Sign in with Microsoft button.
+//! name, how), and the Ely.by card beside it with its Sign in with Ely.by button and form.
 //!
-//! Not in the mockup, kept in its patterns: the Microsoft accounts already signed in (in the
-//! Microsoft card, with Play as, Refresh and Sign out), the sign-in's code, progress and problems.
+//! Not in the mockup, kept in its patterns: the Ely.by accounts already signed in (in the
+//! Ely.by card, with Play as, Refresh and Sign out), the sign-in's progress and problems.
 
 use super::*;
 use crate::glass_ui::{self as ui, white, Tone};
-use horizon_theme::glass::{ink, radius};
+use horizon_theme::glass::ink;
 
 impl Launcher {
     pub(super) fn glass_account(&mut self, cx: &mut Context<Self>) -> Div {
         let wide = self.window_width >= crate::glass_home::WIDE;
         let left = self.glass_who_plays();
-        let right = self.glass_microsoft_card(cx);
+        let right = self.glass_ely_card(cx);
         if wide {
             div()
                 .flex()
@@ -37,12 +37,12 @@ impl Launcher {
             Some(a) => (
                 Some(a.uuid.clone()),
                 a.name.clone(),
-                (Tone::Live, tr("Microsoft account · online servers too")),
+                (Tone::Live, tr("Ely.by account · plays online")),
             ),
             None => (
                 None,
-                tr("Sign in with Microsoft").to_string(),
-                (Tone::Off, tr(account::NEEDS_OWNER)),
+                tr("Sign in with Ely.by").to_string(),
+                (Tone::Off, tr(account::NEEDS_ACCOUNT)),
             ),
         };
         let head = div()
@@ -89,71 +89,19 @@ impl Launcher {
         div().flex().flex_col().child(header)
     }
 
-    /// The Microsoft card: the accounts signed in here, then adding one (the mockup's card).
-    fn glass_microsoft_card(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
+    /// The Ely.by card: the accounts signed in here, then adding one (the mockup's card).
+    fn glass_ely_card(&mut self, cx: &mut Context<Self>) -> Div {
         let has_accounts = !self.accounts.accounts.is_empty();
         let (rows, _) = if has_accounts {
-            ui::flat_rows(|| self.microsoft_rows(cx))
+            ui::flat_rows(|| self.signed_in_rows(cx))
         } else {
             (div(), 0)
         };
-        let (title, detail, action) = self.sign_in_parts(cx);
-        let configured = account::client_id().is_some();
-        let idle = self.sign_in_state.is_none()
-            || matches!(self.sign_in_state, Some(SignInState::Done(_)));
-        let first = !has_accounts && self.sign_in_target.is_none();
-        let heading = if first {
-            tr("Play online with your Microsoft account").to_string()
-        } else {
+        let (title, detail) = self.sign_in_parts(cx);
+        let heading = if has_accounts {
             title
-        };
-        let note: AnyElement = if first && configured && self.sign_in_state.is_none() {
-            div()
-                .child(tr(
-                    "Sign in with the account that owns Minecraft: Java Edition. Your name and \
-                     skin come along to online servers, like in other launchers.",
-                ))
-                .into_any_element()
         } else {
-            detail.into_any_element()
-        };
-        // Adding an account is the mockup's white button; signing one in again, the code and
-        // the waiting keep their own buttons.
-        let button: Option<AnyElement> = if configured && idle && self.sign_in_target.is_none() {
-            Some(
-                keyboard(
-                    div()
-                        .id("glass-sign-in")
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .gap(px(10.))
-                        .h(px(48.))
-                        .w_full()
-                        .mt(px(24.))
-                        .rounded(px(radius::ROW))
-                        .bg(gpui::white())
-                        // On a light plate, Microsoft's white button keeps an edge.
-                        .when(ui::light(), |d| d.border_1().border_color(ui::white(0.15)))
-                        .cursor_pointer()
-                        .hover(|s| s.opacity(0.9))
-                        .font_family(horizon_theme::glass::FONT)
-                        .text_size(px(15.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(gpui::rgb(0x100a1f))
-                        .child(microsoft::logo(18.))
-                        .child(tr("Sign in with Microsoft")),
-                    &t,
-                )
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.start_sign_in();
-                    cx.notify();
-                }))
-                .into_any_element(),
-            )
-        } else {
-            action.map(|a| div().mt(px(20.)).child(a).into_any_element())
+            tr("Play online with your Ely.by account").to_string()
         };
         div()
             .flex()
@@ -164,7 +112,7 @@ impl Launcher {
             .when(has_accounts, |d| {
                 d.child(rows.mx(px(-16.)).mt(px(-16.)).mb(px(16.)))
             })
-            .child(microsoft::logo(36.))
+            .child(ui::icon("user", 36., white(ink::FULL)))
             .child(
                 div()
                     .mt(px(20.))
@@ -179,19 +127,15 @@ impl Launcher {
                 ui::text(14., FontWeight::NORMAL, 0.65)
                     .mt(px(8.))
                     .line_height(px(21.7))
-                    .child(note),
+                    .child(detail),
             )
-            .children(button)
-            .when(configured, |d| {
-                d.child(
-                    ui::text(12., FontWeight::NORMAL, 0.45)
-                        .mt(px(12.))
-                        .line_height(px(18.))
-                        .child(tr(
-                            "Microsoft's own page opens in your browser. Horizon never sees your \
-                             password.",
-                        )),
-                )
-            })
+            .child(
+                ui::text(12., FontWeight::NORMAL, 0.45)
+                    .mt(px(12.))
+                    .line_height(px(18.))
+                    .child(tr(
+                        "Your password goes to Ely.by only; Horizon doesn't keep it.",
+                    )),
+            )
     }
 }

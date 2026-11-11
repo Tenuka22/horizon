@@ -9,9 +9,9 @@
 //! the service fails, and a change made offline waits there until the service answers again.
 //!
 //! The service learns who the player is the way an online-mode server does: it hands out a
-//! one-time server id, the launcher tells Mojang's session server that the account joins it
-//! (`account::session::join_server`), and the service asks Mojang. The Minecraft token goes to
-//! Mojang only; the service gives back a session of its own, kept in memory here.
+//! one-time server id, the launcher tells Ely.by's session server that the account joins it
+//! (`account::session::join_server`), and the service asks Ely.by (`hasJoined`). The Ely.by token
+//! goes to Ely.by only; the service gives back a session of its own, kept in memory here.
 use crate::i18n::tr;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -27,7 +27,7 @@ pub const SHOP_URL: &str = "https://playhorizon.dev/shop";
 pub enum Error {
     /// No answer: offline, or the service is down.
     Offline,
-    /// Mojang didn't confirm the account (the launcher's `join` failed or was refused).
+    /// The service didn't take the account (the launcher's `join` failed or was refused).
     Account(String),
     /// The service's session ended: sign in to it again.
     SignedOut,
@@ -506,7 +506,7 @@ impl Service {
         Ok(bytes)
     }
 
-    /// Sign `name` in: `join` tells Mojang the account joins the server id the service chose
+    /// Sign `name` in: `join` tells Ely.by the account joins the server id the service chose
     /// (`account::session::join_server` for a real account).
     pub fn sign_in(
         &self,
@@ -526,11 +526,15 @@ impl Service {
         }
         let start: Start = parse(self.call("POST", "/v1/auth/start", None, Some(json!({})))?)?;
         join(&start.server_id).map_err(Error::Account)?;
-        let body = json!({ "server_id": start.server_id, "name": name });
+        // The finish names the session server that vouches for the account, so the service asks
+        // the right one (`hasJoined`).
+        let body = json!({ "server_id": start.server_id, "name": name, "provider": "elyby" });
         let finish: Finish = match self.call("POST", "/v1/auth/finish", None, Some(body)) {
+            // The join at Ely.by went through (`join` above), so it is the service that doesn't
+            // take the account.
             Err(Error::SignedOut) => {
                 return Err(Error::Account(
-                    tr("Mojang could not confirm your account. Sign in again and retry.").into(),
+                    tr("Horizon's cosmetics service doesn't accept Ely.by accounts yet.").into(),
                 ))
             }
             other => parse(other?)?,

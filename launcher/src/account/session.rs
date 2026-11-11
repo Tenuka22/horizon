@@ -1,6 +1,7 @@
 //! Launcher-owned authentication operations. UI, CLI and a future game bridge receive only
 //! public status; credentials stay behind SecretStore and the existing session-file handoff.
 use super::*;
+use crate::i18n::tr;
 use std::fs::{File, OpenOptions};
 use std::sync::MutexGuard;
 use std::time::{Duration, Instant};
@@ -11,12 +12,7 @@ use std::time::{Duration, Instant};
 pub enum Phase {
     Queued,
     Keychain,
-    Microsoft,
     Elyby,
-    Xbox,
-    Minecraft,
-    Ownership,
-    Profile,
     Saving,
     SigningOut,
 }
@@ -26,12 +22,7 @@ impl Phase {
         match self {
             Self::Queued => "Waiting for account access…",
             Self::Keychain => "Reading keychain…",
-            Self::Microsoft => "Renewing Microsoft sign-in…",
             Self::Elyby => "Renewing Ely.by sign-in…",
-            Self::Xbox => "Signing in to Xbox Live…",
-            Self::Minecraft => "Getting Minecraft session…",
-            Self::Ownership => "Checking Minecraft ownership…",
-            Self::Profile => "Loading Minecraft profile…",
             Self::Saving => "Saving sign-in…",
             Self::SigningOut => "Signing out…",
         }
@@ -45,7 +36,6 @@ pub enum State {
     NeedsRefresh,
     SignInRequired,
     Retry,
-    OwnershipRequired,
 }
 
 /// Safe to show or serialize: contains no credential or secret-store contents.
@@ -65,7 +55,6 @@ impl Status {
             State::NeedsRefresh => "Needs refresh",
             State::SignInRequired => "Sign in again",
             State::Retry => "Could not check sign-in",
-            State::OwnershipRequired => "Minecraft account needs attention",
         }
     }
 
@@ -85,7 +74,6 @@ impl Status {
         let state = match secrets {
             None => State::SignInRequired,
             Some(s) if s.sign_in_required => State::SignInRequired,
-            Some(s) if !s.owns => State::OwnershipRequired,
             Some(s) if s.minecraft_expires_at <= now() + RENEW_BEFORE => State::NeedsRefresh,
             Some(_) => State::Ready,
         };
@@ -95,10 +83,7 @@ impl Status {
             message: String::new(),
         };
         status.message = match state {
-            State::SignInRequired => "Sign in again in your browser.".into(),
-            State::OwnershipRequired => {
-                "Check Minecraft: Java Edition ownership and your profile at minecraft.net.".into()
-            }
+            State::SignInRequired => "Sign in again with your Ely.by account.".into(),
             _ => status.label().into(),
         };
         status
@@ -241,7 +226,6 @@ pub fn refresh_with_progress(who: &str, progress: &dyn Fn(Phase)) -> Result<Stat
         .ok_or("That account isn't signed in.")?;
     Ok(refresh_account(
         &Endpoints::live(),
-        client_id().as_deref(),
         store(),
         &account,
         &Accounts::path(),
@@ -252,18 +236,16 @@ pub fn refresh_with_progress(who: &str, progress: &dyn Fn(Phase)) -> Result<Stat
 #[cfg(test)]
 pub(super) fn refresh_with(
     ep: &Endpoints,
-    client_id: Option<&str>,
     store: &dyn SecretStore,
     account: &Account,
     accounts: &Path,
 ) -> Status {
-    refresh_account(ep, client_id, store, account, accounts, &|_| {})
+    refresh_account(ep, store, account, accounts, &|_| {})
 }
 
 /// `accounts`: the accounts.json a renewed name or skin is saved to (`Accounts::path()`).
 pub(super) fn refresh_account(
     ep: &Endpoints,
-    client_id: Option<&str>,
     store: &dyn SecretStore,
     account: &Account,
     accounts: &Path,
@@ -278,32 +260,30 @@ pub(super) fn refresh_account(
         };
         let before =
             serde_json::to_string(&secrets).map_err(|_| "Could not read the saved sign-in.")?;
-        let (mut status, secrets) =
-            match check_with(ep, client_id, account, secrets, true, progress) {
-                Check::Owns(renewed, s) => {
-                    // A new name or skin goes to accounts.json, as launch() saves it, so the
-                    // row and its profile head follow the refresh, not the next Play.
-                    let mut saved = Accounts::load_from(accounts);
-                    if saved
-                        .accounts
-                        .iter()
-                        .any(|a| a.uuid == renewed.uuid && *a != renewed)
-                    {
-                        saved.update(renewed);
-                        let _ = saved.save_to(accounts);
-                    }
-                    (Status::from_secrets(Some(&s)), s)
+        let (mut status, secrets) = match check_with(ep, account, secrets, true, progress) {
+            Check::Ready(renewed, s) => {
+                // A new name or skin goes to accounts.json, as launch() saves it, so the
+                // row and its profile head follow the refresh, not the next Play.
+                let mut saved = Accounts::load_from(accounts);
+                if saved
+                    .accounts
+                    .iter()
+                    .any(|a| a.uuid == renewed.uuid && *a != renewed)
+                {
+                    saved.update(renewed);
+                    let _ = saved.save_to(accounts);
                 }
-                Check::DoesNot(s) => (Status::from_secrets(Some(&s)), s),
-                Check::NoAnswer(e, s) => {
-                    let mut status = Status::from_secrets(Some(&s));
-                    if !s.sign_in_required {
-                        status.state = State::Retry;
-                    }
-                    status.message = e;
-                    (status, s)
+                (Status::from_secrets(Some(&s)), s)
+            }
+            Check::NoAnswer(e, s) => {
+                let mut status = Status::from_secrets(Some(&s));
+                if !s.sign_in_required {
+                    status.state = State::Retry;
                 }
-            };
+                status.message = e;
+                (status, s)
+            }
+        };
         let after =
             serde_json::to_string(&secrets).map_err(|_| "Could not save the renewed sign-in.")?;
         if before != after {
@@ -330,7 +310,6 @@ pub fn renew_for_game(dir: &Path, who: &str) -> Result<PathBuf, Status> {
         .ok_or_else(|| Status::from_secrets(None))?;
     renew_for_game_with(
         &Endpoints::live(),
-        client_id().as_deref(),
         store(),
         &account,
         &Accounts::path(),
@@ -340,13 +319,12 @@ pub fn renew_for_game(dir: &Path, who: &str) -> Result<PathBuf, Status> {
 
 pub(super) fn renew_for_game_with(
     ep: &Endpoints,
-    client_id: Option<&str>,
     store: &dyn SecretStore,
     account: &Account,
     accounts: &Path,
     dir: &Path,
 ) -> Result<PathBuf, Status> {
-    let status = refresh_account(ep, client_id, store, account, accounts, &|_| {});
+    let status = refresh_account(ep, store, account, accounts, &|_| {});
     if status.state != State::Ready {
         return Err(status);
     }
@@ -357,31 +335,17 @@ pub(super) fn renew_for_game_with(
     write_session_file(dir, account, &secrets).map_err(|e| Status::failed(&e))
 }
 
-/// Mojang's session server: what an online-mode server asks to check that a player is who they
-/// say (`hasJoined`), after the client said so (`join`).
-pub const SESSION_SERVER: &str = "https://sessionserver.mojang.com";
-
-/// The session service an account joins through: Mojang's, or Ely.by's for an Ely.by account.
-fn session_service(account: &Account) -> &'static str {
-    match account.provider {
-        Provider::Ely => horizon_addresses::ELY_AUTH,
-        Provider::Microsoft => SESSION_SERVER,
-    }
-}
-
-/// Prove to a service that `who` owns their Minecraft account the way a client proves it to an
-/// online-mode server: tell Mojang's session server that this account joins `server_id`, a
-/// one-time value the service chose. The service then asks Mojang (`hasJoined`) and never sees
-/// the account's token, which only goes to Mojang.
+/// Prove to a service that `who` is the Ely.by account they say, the way a client proves it to an
+/// online-mode server: tell Ely.by that this account joins `server_id`, a one-time value the
+/// service chose. The service then asks Ely.by (`hasJoined`) and never sees the account's token,
+/// which only goes to Ely.by.
 pub fn join_server(who: &str, server_id: &str) -> Result<(), String> {
     let account = Accounts::load()
         .find(who)
         .cloned()
-        .ok_or("Sign in with a Minecraft account first.")?;
+        .ok_or("Sign in with an Ely.by account first.")?;
     join_server_with(
         &Endpoints::live(),
-        session_service(&account),
-        client_id().as_deref(),
         store(),
         &account,
         &Accounts::path(),
@@ -391,38 +355,34 @@ pub fn join_server(who: &str, server_id: &str) -> Result<(), String> {
 
 pub(super) fn join_server_with(
     ep: &Endpoints,
-    session: &str,
-    client_id: Option<&str>,
     store: &dyn SecretStore,
     account: &Account,
     accounts: &Path,
     server_id: &str,
 ) -> Result<(), String> {
-    let status = refresh_account(ep, client_id, store, account, accounts, &|_| {});
+    let status = refresh_account(ep, store, account, accounts, &|_| {});
     if status.state != State::Ready {
         return Err(status.message);
     }
     let secrets = {
         let _operation = lock(store)?;
-        read(store, &account.uuid)?.ok_or("Sign in with a Minecraft account first.")?
+        read(store, &account.uuid)?.ok_or("Sign in with an Ely.by account first.")?
     };
     let body = json!({
         "accessToken": secrets.minecraft_token,
         "selectedProfile": account.uuid,
         "serverId": server_id,
     });
-    let path = match account.provider {
-        Provider::Ely => "session/join",
-        Provider::Microsoft => "session/minecraft/join",
-    };
-    let url = format!("{session}/{path}");
+    let url = format!("{}/session/join", ep.ely);
     match send(
         request_to("POST", &url),
         Some(Body::Json(body)),
-        "Mojang's session server",
+        tr("Ely.by's session server"),
     )? {
         (200..=299, _) => Ok(()),
-        (403, _) => Err("Mojang could not confirm your account. Sign in again and retry.".into()),
-        _ => Err("Mojang's session server is not answering. Try again later.".into()),
+        (403, _) => {
+            Err(tr("Ely.by could not confirm your account. Sign in again and retry.").into())
+        }
+        _ => Err(tr("Ely.by's session server is not answering. Try again later.").into()),
     }
 }

@@ -1,6 +1,6 @@
 //! The Wardrobe page (top bar, between Servers and Versions), in the glass look, shown when the
 //! cosmetics service has a founder set to show (`horizon_launcher::shop`, `watch_shop`), or with
-//! `HORIZON_COSMETICS=1`: the signed-in Microsoft account's skin wearing its items in 3D
+//! `HORIZON_COSMETICS=1`: the signed-in Ely.by account's skin wearing its items in 3D
 //! (`viewer`: drag to turn, scroll to zoom, a hovered card tries its item on), a
 //! row per slot, what the account owns for the chosen slot, the purchase history, one plain button
 //! to the Shop tab ("Get more cosmetics"; `shop.rs`: browsing, prices, the
@@ -60,7 +60,7 @@ enum Status {
 }
 
 pub(super) struct Wardrobe {
-    /// The Microsoft account it is for.
+    /// The Ely.by account it is for.
     uuid: String,
     saved: Saved,
     items: HashMap<String, Arc<Item>>,
@@ -402,7 +402,7 @@ fn day(secs: i64) -> String {
 }
 
 impl Launcher {
-    /// On every visit to the page: the selected Microsoft account's kept outfit at once, then the
+    /// On every visit to the page: the selected Ely.by account's kept outfit at once, then the
     /// service's answer, sending what waits.
     pub(super) fn open_wardrobe(&mut self, cx: &mut Context<Self>) {
         let Some(account) = self.wardrobe_account() else {
@@ -817,7 +817,6 @@ impl Launcher {
             None => catalogue,
         };
         let account = account::Account {
-            provider: account::Provider::Microsoft,
             uuid: "00000000000000000000000000000001".into(),
             name: "Preview".into(),
             skin: None,
@@ -850,7 +849,7 @@ impl Launcher {
             self.shop.preview();
         }
         self.accounts.accounts.push(account.clone());
-        self.owner = Some(true);
+        self.signed_in = Some(true);
         self.wardrobe = Some(Wardrobe {
             uuid: account.uuid.clone(),
             saved,
@@ -1259,20 +1258,15 @@ impl Launcher {
         ))
     }
 
-    /// No Microsoft account selected: the way to sign in (the Wardrobe's and the Shop's).
+    /// No Ely.by account selected: the way to sign in (the Wardrobe's and the Shop's).
     fn wardrobe_sign_in(&self, cx: &mut Context<Self>) -> Div {
         let t = self.theme;
-        let sign_in = button(
-            "wardrobe-sign-in",
-            "Sign in with Microsoft",
-            Kind::Primary,
-            &t,
-        )
-        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.go(Page::Settings);
-            this.start_sign_in();
-            cx.notify();
-        }));
+        let sign_in = button("wardrobe-sign-in", "Sign in with Ely.by", Kind::Primary, &t)
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.go(Page::Settings);
+                this.elyby_open(window, cx);
+                cx.notify();
+            }));
         glass::plate(radius::PANEL)
             .flex()
             .items_center()

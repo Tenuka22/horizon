@@ -42,18 +42,20 @@ The opening, then Play ([clip](docs/opening.webm)):
   preparation reuses checksum-verified game jars and libraries from the current
   or another installed Horizon version, so the original Minecraft install is
   only required when no valid imported copy exists.
-- **Download and prepare**: for a signed-in account that owns the game (asked again first),
+- **Download and prepare**: for the signed-in Ely.by account (no ownership check),
   the launcher downloads the pinned version from Mojang itself (piston-meta, piston-data,
   libraries.minecraft.net, resources.download.minecraft.net; never a mirror) into `minecraft/`
   in its data folder, in the official launcher's layout: the version file, the client jar, this
-  system's libraries, the asset index and the assets. Every file must have the size and sha1
-  Mojang lists. The Play page shows how far it is and has Cancel; files already whole are kept,
-  so the next try goes on from there. **From my install** prepares from the player's own launcher
+  system's libraries (by their rules for the OS and CPU architecture), the asset index and the assets.
+  Every file must have the size and sha1 Mojang lists, is written atomically, and is fetched in
+  parallel; failures are tried again for up to 3 rounds, and assets already present with the right
+  size are skipped. The Play page shows how far it is and has Cancel; files already whole are kept,
+  so the next try goes on from there, and what is present works offline. **From my install** prepares from the player's own launcher
   instead, and an install that lacks the version falls back to the download. **Play** on a version
-  not prepared yet does it all for an owner, as the official launcher does: it prepares from the
+  not prepared yet does it all, as the official launcher does: it prepares from the
   install when there is one, else downloads (with Mojang's Java when no Java 25 is installed), then
   starts the game. With no install on the computer the Play page offers the download alone and the
-  Minecraft folder row says none is needed. Without an owner,
+  Minecraft folder row says none is needed. Without a signed-in account,
   the Play page asks to sign in first. `horizon-launcher prepare --download`.
 - **Mods**: tabs for Mods, Modpacks, Resource packs, Shader packs and Data packs. Mods, Modpacks,
   Resource packs and Data packs (into the world picked there) search Horizon's own registry, with
@@ -161,9 +163,8 @@ The opening, then Play ([clip](docs/opening.webm)):
   instance id inside it, so a rename doesn't lose it. `horizon-launcher instance shortcut
   [instance] [--remove]`; `HORIZON_LAUNCHER_DESKTOP` points it at another folder.
 - **Accounts and quick switch**: the top bar's account chip opens a menu of the signed-in
-  Microsoft accounts. Picking one plays as it from the next Play; that account must own the game
-  ([Microsoft accounts](#microsoft-accounts)). There are no offline names: the project decided
-  that Horizon plays only with a Microsoft account that owns Minecraft: Java Edition. The
+  Ely.by accounts. Picking one plays as it from the next Play ([Ely.by accounts](#elyby-accounts)).
+  There are no offline names: Horizon plays only with a signed-in Ely.by account. The
   Console's Share log takes the account names out of the log. `horizon-launcher account select
   <name>`.
 - **Accent and Home background**: on top of Dark, Light or System, Settings > Launcher picks an
@@ -263,7 +264,7 @@ page `servers.json` (the list), `servers/<name>/` (the servers created there) an
   unreachable), Settings' Proxy takes the `http://host:port` or `socks5://host:port` address your
   proxy app listens on, and
   every download goes through it: Horizon's releases and the launcher's own update, Minecraft's
-  files and Java from Mojang, Modrinth, CurseForge, Horizon's mod registry, pictures, Microsoft
+  files and Java from Mojang, Modrinth, CurseForge, Horizon's mod registry, pictures, Ely.by
   sign-in, and the jars a modpack import fetches. It is kept as `proxy` in `settings.json`, and
   `horizon-launcher settings proxy http://127.0.0.1:7890` sets it too ("default" removes it).
   Without one, `HTTPS_PROXY` and `HTTP_PROXY` are used when the launcher is started with them, and
@@ -384,8 +385,8 @@ and don't set `%ERRORLEVEL%` / `$LASTEXITCODE`. Scripts that need the exit code 
     horizon-launcher game-args [<line>]             show or set the extra arguments the game starts with
     horizon-launcher update [--check]               Horizon and the launcher
     horizon-launcher logs [--lines N] [--crash]     the end of the game's log, or its newest crash report
-    horizon-launcher account [list]                 the Microsoft accounts signed in (* = plays)
-    horizon-launcher account sign-in                sign in in your browser with a code
+    horizon-launcher account [list]                 the Ely.by accounts signed in (* = plays)
+    horizon-launcher account sign-in                sign in to Ely.by (asks for username, password, two-factor code)
     horizon-launcher account sign-out <name>
     horizon-launcher account select <name>          play as this account
     horizon-launcher instance [list]                the instances and their game folders (* = Play starts it)
@@ -453,8 +454,8 @@ same name and arguments, generated from the CLI's definition (`src/cli_tools.rs`
 output. Tools that delete something (`remove`, `mods_remove`, `modpack_remove`,
 `servers_forget`, `account_sign_out`, `data_delete`) need `confirm: true`. The session runs a few
 itself, under the CLI's names: `play`, `server` with `server_command`, `server_log` and
-`server_stop`, `account_list` and `account_sign_in` (returns the link and code for the player;
-the sign-in finishes in the background). A server started through MCP stops (cleanly, with
+`server_stop` and `account_list` (there is no sign-in tool: a password must not pass through an
+agent). A server started through MCP stops (cleanly, with
 `stop`) when the session ends. Starting one needs `accept_eula`, which an agent should only pass
 with the player's consent.
 
@@ -472,28 +473,28 @@ refuses. Every other command keeps working.
 
 The window, the command line and the MCP server all call the same core, `src/backend.rs`.
 
-## Microsoft accounts
+## Ely.by accounts
 
-The launcher starts the game only while a Microsoft account that owns Minecraft: Java Edition is
-signed in, as other launchers do: without one, Play (Home, instances, `horizon-launcher play`, the
-MCP's `play`) says "Sign in with a Microsoft account that owns Minecraft: Java Edition to play"
-and starts nothing. Settings → Accounts signs in: the launcher shows a code, you enter it at
-microsoft.com/link, and the launcher checks that the account owns the game. It asks again at every
-Play, with the token renewal; with no network the last answer stands, and a "doesn't own" blocks
-at once. The account that plays must own the game itself, and it plays online-mode servers under
-your own name and skin, LAN and offline-mode servers too. The game binary started directly (`horizon-client`,
-`horizon-ctl launch`), the harnesses and the servers don't go through this check. Tokens live in the system keychain (Keychain,
+The launcher starts the game only while an Ely.by account is signed in: without one, Play (Home,
+instances, `horizon-launcher play`, the MCP's `play`) asks to sign in and starts nothing. An Ely.by
+account does not need to own Minecraft. Settings → Accounts signs in with the Ely.by username and
+password, and the two-factor code when the account has one; `horizon-launcher account sign-in`
+asks for the same. The selected account plays online-mode servers under its own name and skin, LAN
+and offline-mode servers too. Horizon's own client plays with the Ely.by session; Java Edition
+instances play with the account through authlib-injector
+(`-javaagent:authlib-injector.jar=ely.by`, the jar downloaded and SHA-256 verified). Skins and heads
+come from `skinsystem.ely.by`. Microsoft accounts are no longer supported: those an older launcher
+signed in are removed at the first start (their `accounts.json` entries and keychain items), with a
+one-time notice. The game binary started directly (`horizon-client`, `horizon-ctl launch`), the
+harnesses and the servers don't go through this. Tokens live in the system keychain (Keychain,
 Credential Manager, or the Secret Service on Linux), never in a log or the command line;
 `accounts.json` in the data folder keeps only names and UUIDs. On Linux without a keychain they go
 to `account-secrets.json` in the data folder, encrypted and readable by you only, and back to the keychain once it
 answers; on macOS and Windows without one you stay signed in until the launcher closes. The
 Tailscale access token never goes to that file: without a keychain it lasts until the launcher
 closes. When the game starts, it gets the session in a private file it
-deletes as soon as it has read it. Sign out removes the tokens.
-
-Sign-in needs Horizon's own Azure app registration: its client ID is built in from
-`HORIZON_MSA_CLIENT_ID` (and `HORIZON_MSA_CLIENT_ID` at run time overrides it; empty = not
-configured). How it works: [docs/microsoft-account.md](../docs/microsoft-account.md).
+deletes as soon as it has read it. Sign out removes the tokens. How it works:
+[docs/elyby-account.md](../docs/elyby-account.md).
 
 ## Logs and crash reports
 

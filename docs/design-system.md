@@ -291,16 +291,6 @@ Light); `tokens.css` carries them as `--night-*`. The game's menus don't use it.
   "needed by another mod", or a local file by name), an update as an amber pill when the browser
   found one, and a switch (a Java jar turned off is renamed `.disabled`). Update all and Add mods
   sit at the strip's end (`HORIZON_LAUNCHER_PAGE=instance-mods`).
-- **Sign in with Microsoft** (`launcher/src/microsoft.rs`): every button that signs in is
-  Microsoft's own, drawn as Microsoft publishes it: 41 pixels tall, its four-square symbol, the text
-  semibold at 15 pixels, `#2F2F2F` with white text at night, white with `#5E5E5E` text and a
-  `#8C8C8C` border at dawn, square corners. Not one of the launcher's cut plates: Microsoft's
-  guidelines ask for the button as it is.
-- **The sign-in sheet** (`launcher/src/owner_page.rs`, the owner gate): an opaque plate over the
-  dimmed launcher, never instead of it. It says why (the account that owns Java Edition, no install
-  needed), the code in mono on a raised box with Copy, and Open link as the main action; the window
-  goes on by itself once Microsoft answers (`HORIZON_LAUNCHER_PAGE=sign-in` shows it with a made-up
-  code for screenshots).
 - **New instance** (`launcher/src/new_instance.rs`): an opaque plate over the dimmed launcher,
   tabs for the kind (Horizon, Vanilla, Modded). A Java kind lists Mojang's versions (search,
   Snapshots, Old; the newest release chosen), Modded adds the loader (Fabric, Quilt, Forge or NeoForge, with its logo, at its newest

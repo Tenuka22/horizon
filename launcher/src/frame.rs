@@ -1,6 +1,6 @@
 //! The glass look's frame (the mockup's `launcher-app.tsx`): the sidebar plate with the
 //! instances, the launcher's update, Sculk's card, Discord and the links; the top bar with the
-//! pages in a glass tab strip, the player, Microsoft sign-in and Settings; and the menus they open.
+//! pages in a glass tab strip, the player, Ely.by sign-in and Settings; and the menus they open.
 //! Dark appearance only for now (`docs/design-system.md`, "Glass").
 use super::*;
 use crate::glass_ui::{self as ui, white, Tone};
@@ -604,7 +604,7 @@ impl Launcher {
             .child(foot.relative())
     }
 
-    /// The glass top bar: the pages in a glass strip, then the player, Microsoft sign-in and
+    /// The glass top bar: the pages in a glass strip, then the player, Ely.by sign-in and
     /// Settings (`px-8 pt-3.5`).
     pub(super) fn glass_topbar(&mut self, cx: &mut Context<Self>) -> Div {
         let t = self.theme;
@@ -638,6 +638,7 @@ impl Launcher {
             }));
 
         let (name, how) = self.who_plays();
+        let signed_out = self.accounts.selected().is_none();
         let face = self.accounts.selected().map(|a| a.uuid.clone());
         let open = self.account_menu;
         let chip =
@@ -664,14 +665,17 @@ impl Launcher {
                     div()
                         .flex()
                         .flex_col()
+                        .justify_center()
                         .max_w(px(if compact { 100. } else { 150. }))
+                        // Signed out there is no name: the one line says what the chip does,
+                        // centred in the chip.
                         .child(
                             ui::text(14., FontWeight::SEMIBOLD, ink::FULL)
                                 .line_height(px(17.))
                                 .truncate()
-                                .child(name),
+                                .child(if signed_out { how.to_owned() } else { name }),
                         )
-                        .children((!compact).then(|| {
+                        .children((!compact && !signed_out).then(|| {
                             ui::text(12., FontWeight::NORMAL, ink::QUIET)
                                 .line_height(px(15.))
                                 .child(how)
@@ -684,8 +688,15 @@ impl Launcher {
                             if open { std::f32::consts::PI } else { 0. },
                         ))),
                 )
-                .on_click(cx.listener(|this, event: &ClickEvent, _, cx| {
+                .on_click(cx.listener(|this, event: &ClickEvent, window, cx| {
                     if this.closed_by_this_press(event) {
+                        return;
+                    }
+                    // Nobody signed in: the chip is the sign-in, not an empty menu.
+                    if this.accounts.selected().is_none() {
+                        this.go(Page::Settings);
+                        this.elyby_open(window, cx);
+                        cx.notify();
                         return;
                     }
                     this.account_menu = !this.account_menu;
@@ -700,33 +711,6 @@ impl Launcher {
             .child(keyboard(chip, &t))
             .children(self.glass_account_menu(cx));
 
-        // Signing in with Microsoft, while nobody is: the mockup's button.
-        let sign_in = self.accounts.selected().is_none().then(|| {
-            keyboard(
-                div()
-                    .id("topbar-sign-in")
-                    .relative()
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .h(px(44.))
-                    .px(px(16.))
-                    .rounded(px(radius::ROW))
-                    .bg(white(fill::BUTTON))
-                    .hover(|s| s.bg(white(fill::BUTTON_HOVER)))
-                    .cursor_pointer()
-                    .child(microsoft::logo(16.))
-                    .child(
-                        ui::text(14., FontWeight::MEDIUM, ink::FULL)
-                            .child(tr("Sign in with Microsoft")),
-                    )
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.start_sign_in();
-                        cx.notify();
-                    })),
-                &t,
-            )
-        });
         let settings = ui::icon_button(
             "nav-Settings",
             "sliders-horizontal",
@@ -783,7 +767,6 @@ impl Launcher {
                     .gap(px(6.))
                     .children(build_log)
                     .child(account)
-                    .children(sign_in)
                     .child(settings),
             )
     }

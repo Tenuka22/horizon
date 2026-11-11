@@ -62,13 +62,13 @@ Prepare a version's resources from your own Minecraft install, or from Mojang.
     horizon-launcher prepare
 
 - `--minecraft`: The game folder of the official launcher, Prism Launcher, MultiMC, the Modrinth App, ATLauncher or GDLauncher (default: the launcher's, then every launcher's default)
-- `--download`: Download Minecraft from Mojang for the signed-in account that owns it, instead of using an install
+- `--download`: Download Minecraft's files from Mojang (no account needed), instead of using an install
 
 MCP: `prepare`.
 
 ## `horizon-launcher play`
 
-Start the client (needs a signed-in Microsoft account that owns Minecraft: Java Edition).
+Start the client (needs a signed-in Ely.by account: horizon-launcher account sign-in).
 
     horizon-launcher play
 
@@ -148,13 +148,16 @@ MCP: `account_list`.
 
 ## `horizon-launcher account sign-in`
 
-Sign in with a Microsoft account in your browser (device code). Play needs one that owns Minecraft: Java Edition.
+Sign in with an Ely.by account: asks for the username, the password (not shown) and, when the account has one, the two-factor code. Play needs a signed-in account. Without a terminal, give --username and the password on stdin with --password-stdin; a password is never taken from the command line.
 
-    horizon-launcher account sign-in
+    horizon-launcher account sign-in [NAME]
 
-- `--for`: Sign this account (name or UUID) in again: another Microsoft account is refused and who plays stays the same
+- `NAME`: The Ely.by username (or email) to sign in; also an account already signed in, by name or UUID, to sign it in again
+- `--username`: The same as NAME, for scripts
+- `--password-stdin`: Read the password from the first line of stdin (without a terminal)
+- `--code`: The two-factor code, for an account that has one (asked for when there is a terminal)
 
-MCP: `account_sign_in`.
+MCP: none: it takes the player's password.
 
 ## `horizon-launcher account refresh`
 

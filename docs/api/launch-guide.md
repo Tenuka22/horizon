@@ -5,12 +5,12 @@ ATLauncher, Modrinth App, HMCL or your own). The contract it relies on is the [L
 are in [launch-reference.md](launch-reference.md). `horizon-launcher` does all of this and is the reference
 implementation.
 
-## 0. Only for an owner
+## 0. Only for a signed-in account
 
-Horizon contains none of Minecraft's code, textures or sounds: it prepares them from the player's own copy. So
-every step below is for a player signed in with a Microsoft account that **owns Minecraft: Java Edition**, the
-same gate `horizon-launcher` applies before every start. Horizon never downloads Mojang's files; when your
-launcher downloads them (step 3), it does so only for that owner, as it would for vanilla.
+Horizon contains none of Minecraft's code, textures or sounds: it prepares them from Minecraft's files on the
+player's computer. Every step below is for a player signed in with an [Ely.by](../elyby-account.md) account, which
+does not need to own Minecraft; `horizon-launcher` plays with nothing else. Horizon never downloads Mojang's files;
+when your launcher downloads them (step 3), it does so from Mojang's public CDN for that account.
 
 ## 1. Pick a build
 
@@ -49,7 +49,7 @@ From `horizon-prepare`'s reply take `minecraft` (the Minecraft version whose fil
 Java it runs) and the `options` it accepts; from `horizon-client`'s, the `options` it accepts. Pass only listed
 options: any other is refused with exit code 2. Readers ignore fields they don't know.
 
-## 3. Have the owner's game files and a Java
+## 3. Have the game files and a Java
 
 Preparing reads, for the `minecraft` version above:
 
@@ -57,7 +57,7 @@ Preparing reads, for the `minecraft` version above:
   The official launcher keeps them under one game folder (`--minecraft-dir`); a launcher that keeps them
   elsewhere names each one (`--version-json`, `--client-jar`, `--libraries-dir`, `--assets-dir`);
 - the **server jar**, the first time only. No launcher keeps it: download it from the version JSON's
-  `downloads.server` for the signed-in owner, as `horizon-launcher` does;
+  `downloads.server` from Mojang's public CDN, as `horizon-launcher` does;
 - a **Java** of `java_major`. A Java your launcher manages goes in with `--java-home`.
 
 Every file is checked against the pins in `research-lock.json`, so a wrong or damaged one is refused, not used.
@@ -93,14 +93,13 @@ makes older resources fail the check.
 
 ## 6. Start the game
 
-One folder per instance, and the owner's session on standard input:
+One folder per instance, and the account's session on standard input:
 
 ```sh
 horizon-client --resources PREPARED --game-dir INSTANCE --home INSTANCE --width 1280 --height 720 --session-stdin
 ```
 
-- Write the [session JSON](launch.md#the-session-json) (`name`, `uuid`, `access_token`, `user_type: "msa"`,
-  `xuid` optional) to the game's standard input and close it. Never put a token on the command line, where other programs
+- Write the [session JSON](launch.md#the-session-json) (`name`, `uuid`, `access_token`, `user_type: "elyby"`) to the game's standard input and close it. Never put a token on the command line, where other programs
   can read it. `--session-file` is the alternative: the game reads the file once and deletes it.
 - `--game-dir` holds saves, `options.txt`, resource packs, mods and screenshots; `--home` holds `logs/latest.log`
   and `crash-reports/`. `--quickPlaySingleplayer WORLD` or `--quickPlayMultiplayer HOST[:PORT]` opens a world or a

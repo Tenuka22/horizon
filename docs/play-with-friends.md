@@ -113,9 +113,9 @@ run at once there, and each must finish within 10 seconds however slowly its byt
 
 ## Identity
 
-Like LAN, and like vanilla's `IntegratedServer`: a host signed in with a Microsoft account runs the world
-in online mode, so each guest signs in through Mojang's session servers and arrives with their own
-UUID, skin and cape. A host playing without a session (the services couldn't be reached at Play) runs it in
+Like LAN, and like vanilla's `IntegratedServer`: a host signed in with an Ely.by account runs the world
+in online mode, so each guest signs in through Ely.by's session server (with the same provider as the host,
+[elyby-account.md](elyby-account.md)) and arrives with their own UUID, skin and cape. A host playing without a session (the services couldn't be reached at Play) runs it in
 offline mode, where a guest joins with the name their game uses. Either way the host's own profile is reserved. Every tunnelled guest
 reaches the integrated server from `127.0.0.1`.
 

@@ -1,13 +1,13 @@
 //! Who plays: the top bar's quick switch (a menu under the account chip) between the signed-in
-//! Microsoft accounts.
+//! Ely.by accounts.
 use super::*;
 
 impl Launcher {
     /// The chip's two lines: the name that plays, and how.
     pub(super) fn who_plays(&self) -> (String, &'static str) {
         match self.accounts.selected() {
-            Some(a) => (a.name.clone(), tr("Microsoft account")),
-            None => (String::new(), tr("Sign in with Microsoft")),
+            Some(a) => (a.name.clone(), tr("Ely.by account")),
+            None => (String::new(), tr("Sign in with Ely.by")),
         }
     }
 
@@ -16,17 +16,17 @@ impl Launcher {
         let done = accounts.play_as(uuid).and_then(|()| accounts.save());
         match done {
             Ok(()) => self.accounts = accounts,
-            Err(e) => self.sign_in_state = Some(SignInState::Done(Err(e))),
+            Err(e) => self.account_error = Some(e),
         }
         self.account_menu = false;
     }
 
-    /// Everyone the player can play as (each account's UUID and name), with how each signs in.
+    /// Everyone the player can play as (each account's UUID and name), with where each signs in.
     pub(super) fn players(&self) -> Vec<(String, String, &'static str)> {
         self.accounts
             .accounts
             .iter()
-            .map(|a| (a.uuid.clone(), a.name.clone(), tr("Microsoft")))
+            .map(|a| (a.uuid.clone(), a.name.clone(), tr("Ely.by")))
             .collect()
     }
 

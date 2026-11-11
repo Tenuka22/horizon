@@ -360,8 +360,8 @@ status = "shipped"
 area = "launcher"
 announce = true
 plain = """Sign in with your Microsoft account in the launcher to play on online-mode servers."""
-dev = """Device-code sign-in in the launcher, tokens in the system keychain (long secrets split over several items, #2879), the session handed to the game and online-mode login in the client (docs/microsoft-account.md). Release builds carry the app's client id; Play needs an account that owns Java Edition."""
-links = ["docs/microsoft-account.md", "#2879"]
+dev = """Device-code sign-in in the launcher, tokens in the system keychain (long secrets split over several items, #2879), the session handed to the game and online-mode login in the client (docs/elyby-account.md). Release builds carry the app's client id; Play needs an account that owns Java Edition."""
+links = ["docs/elyby-account.md", "#2879"]
 shipped_in = "launcher@0.2.17"
 
 [[item]]

@@ -49,7 +49,7 @@ Usage: horizon-server [--dir DIR] <command>
 
   init        Set up a server here: the EULA, the world, the port, who may join (asks, or takes flags:
               --eula --world NAME --seed SEED --port N --whitelist/--no-whitelist --player NAME... --op NAME
-              --offline --yes)
+              --offline --auth-provider mojang|elyby --yes)
   run         Run the server in the foreground; type console commands, Ctrl-C stops it cleanly. It
               restarts the game if it crashes.
   start       Run the server in the background, or resume a stopped supervisor (output goes to logs/supervisor.log)
@@ -228,6 +228,13 @@ fn init_answers(args: &[String]) -> Result<init::Answers, String> {
             "--player" => answers.players.push(value(arg)?),
             "--op" => answers.op = Some(value(arg)?),
             "--offline" => answers.online = Some(false),
+            "--auth-provider" => {
+                answers.auth_provider = Some(
+                    horizon_platform::server_files::properties::AuthProvider::parse(Some(
+                        &value(arg)?,
+                    ))?,
+                );
+            }
             other => return Err(format!("init: unknown option {other}")),
         }
     }

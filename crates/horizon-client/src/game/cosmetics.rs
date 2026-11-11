@@ -53,7 +53,7 @@ fn send_emote(
     kept: &std::sync::Mutex<horizon_cosmetics::account::Kept>,
     emote: Option<&str>,
 ) -> Result<(), String> {
-    let Some(session) = microsoft() else {
+    let Some(session) = signed_in() else {
         return Ok(());
     };
     let mut kept = kept
@@ -72,7 +72,7 @@ fn send_emote(
 fn load_owned_emotes(
     kept: &std::sync::Mutex<horizon_cosmetics::account::Kept>,
 ) -> Result<Vec<horizon_cosmetics::account::OwnedEmote>, String> {
-    let Some(session) = microsoft() else {
+    let Some(session) = signed_in() else {
         return Ok(Vec::new());
     };
     let service = http();
@@ -109,11 +109,9 @@ fn backoff(last: Option<(Instant, Duration)>) -> Option<(Instant, Duration)> {
     Some((Instant::now() + wait, wait))
 }
 
-/// The signed-in Microsoft account. The service speaks only Mojang's join, so an Ely.by account
-/// has no account here: nothing is asked of the service for it.
-fn microsoft() -> Option<Arc<horizon_client::auth::AuthSession>> {
+/// The signed-in account, joined through its own provider's session server.
+fn signed_in() -> Option<Arc<horizon_client::auth::AuthSession>> {
     horizon_client::auth::current()
-        .filter(|s| s.provider == horizon_client::auth::Provider::Microsoft)
 }
 
 /// The signed-in account's UUID as the service writes it, and the game folder.
@@ -122,7 +120,7 @@ fn account() -> Option<(
     String,
     std::path::PathBuf,
 )> {
-    let session = microsoft()?;
+    let session = signed_in()?;
     let uuid = format!("{:032x}", session.uuid);
     Some((session, uuid, std::env::current_dir().ok()?))
 }
@@ -203,7 +201,7 @@ impl AccountSync {
 /// Tells the service whether the signed-in account may be shown as a Horizon player (listed: it
 /// plays now). An offline account has nothing to send.
 fn send_listed(listed: bool) -> Result<(), String> {
-    let Some(session) = microsoft() else {
+    let Some(session) = signed_in() else {
         return Ok(());
     };
     horizon_cosmetics::account::set_listed(
@@ -536,7 +534,7 @@ impl Seat {
                 Err(_) => o.retry = backoff(o.retry),
             }
         }
-        // One sign-in at a time: Mojang keeps one joined server id per account.
+        // One sign-in at a time: the session server keeps one joined server id per account.
         let due = !o.known && o.retry.is_none_or(|(at, _)| Instant::now() >= at);
         if due && o.asking.is_none() && self.mine.sending.is_none() && self.listed.sending.is_none()
         {

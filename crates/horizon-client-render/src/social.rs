@@ -623,7 +623,8 @@ struct Failure {
     code: ResultCode,
 }
 
-/// The discovery document's `player` service endpoint.
+/// The signed-in Mojang account. Friends are a Mojang service Ely.by has no counterpart of, so an
+/// Ely.by account has none.
 fn session() -> Option<Arc<AuthSession>> {
     auth::current().filter(|s| s.provider == auth::Provider::Microsoft && !s.expired())
 }

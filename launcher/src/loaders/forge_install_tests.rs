@@ -385,8 +385,8 @@ fn a_real_installer_installs() {
         })
         .collect();
     let version = crate::java_launch::resolve(own, &dir).unwrap();
-    let os = crate::java_launch::os_name();
-    let classpath = crate::java_launch::classpath(&version, &dir, os).unwrap();
+    let classpath =
+        crate::java_launch::classpath(&version, &dir, crate::mojang::System::current()).unwrap();
     on.push(dir.join(format!("versions/{id}/{id}.jar")));
     assert_eq!(classpath.last(), on.last());
     for path in on {
@@ -404,7 +404,6 @@ fn a_real_installer_installs() {
         name: "Dev".into(),
         uuid: "00000000000000000000000000000000".into(),
         token: "none".into(),
-        xuid: String::new(),
     };
     let command = crate::java_launch::command(
         &version,
@@ -416,9 +415,10 @@ fn a_real_installer_installs() {
             memory_mb: 2048,
             jvm_args: &[],
             player: &player,
-            os,
+            os: crate::java_launch::os_name(),
             window: None,
             server: None,
+            agent: None,
         },
     )
     .unwrap();

@@ -517,7 +517,7 @@ impl Launcher {
             );
         }
 
-        // Account checks (not in the mockup's words: Horizon players sign in with Microsoft now).
+        // Account checks (not in the mockup's words: Horizon players sign in with Ely.by).
         let accounts = div()
             .flex()
             .items_start()
@@ -536,7 +536,7 @@ impl Launcher {
                             .mt(px(2.))
                             .max_w(px(560.))
                             .line_height(px(19.5))
-                            .child(tr("On: every player signs in with Microsoft, so nobody can join under someone else's name. Turn it off only if a player can't sign in.")),
+                            .child(tr("On: every player signs in with their Ely.by account, so nobody can join under someone else's name. Turn it off only if a player can't sign in.")),
                     ),
             )
             .child(

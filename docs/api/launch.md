@@ -17,10 +17,10 @@ reference implementation. Proposed in horizon-rust/horizon#3545.
 
 The whole way, from picking a build to playing: [launch-guide.md](launch-guide.md). In short:
 
-1. Start Horizon only for a player signed in with a Microsoft account that owns Minecraft: Java Edition, and
-   hand over that account's session (`--session-stdin`, or `--session-file`), never on the command line. This
-   is the same owner gate `horizon-launcher` applies before every start. Horizon never downloads Mojang's
-   files; a launcher that does downloads them only for that owner.
+1. Start Horizon only for a player signed in with an Ely.by account, and hand over that account's session
+   (`--session-stdin`, or `--session-file`), never on the command line. Ely.by accounts do not need to own
+   Minecraft. Horizon never downloads Mojang's files; a launcher that does downloads them from Mojang's
+   public CDN.
 2. Ask the build what it takes: `horizon-client --launch-api` prints JSON with `launch_api` (the version),
    `options` and `content` (which mods, shader packs and packs it loads). Pass only options it lists: any other is
    refused with exit code 2.
@@ -40,14 +40,13 @@ option, the `--launch-api` reply and the exit codes.
 
 ### The session JSON
 
-The account the game joins online-mode servers with ([microsoft-account.md](../microsoft-account.md)):
+The account the game joins online-mode servers with ([elyby-account.md](../elyby-account.md)):
 
 ```json
-{"name": "Alex", "uuid": "069a79f444e94726a5befca90e38aaf5", "access_token": "…", "user_type": "msa", "xuid": "…"}
+{"name": "Alex", "uuid": "069a79f444e94726a5befca90e38aaf5", "access_token": "…", "user_type": "elyby"}
 ```
 
-- `name`, `uuid` (with or without dashes) and `access_token` are required; `user_type`, when present, is `msa`;
-  `xuid` is optional.
+- `name`, `uuid` (with or without dashes) and `access_token` are required; `user_type`, when present, is `elyby`.
 - `--session-stdin`: write the JSON to the game's standard input and close it.
 - `--session-file PATH`: a file the game reads once and deletes at once. On Unix its mode must be 0600; a file
   older than two minutes is refused (and deleted).
@@ -57,7 +56,7 @@ The account the game joins online-mode servers with ([microsoft-account.md](../m
 ## Preparing
 
 `horizon-prepare` turns the player's own Minecraft files into the resources `horizon-client --resources` reads. It
-downloads nothing: it reads the files of a Minecraft the player owns (Guide, step 1) and checks each against the
+downloads nothing: it reads Minecraft's files, from an install or from a download your launcher made (Guide, step 3), and checks each against the
 pins in `research-lock.json`.
 
 ```sh
@@ -86,8 +85,8 @@ horizon-prepare --check --output PREPARED
   would give. Every file is still checked against the pins. When an earlier import beside the preparer is still
   verified, it is reused and these files aren't read.
 - `--server-jar PATH`: the first `--prepare` needs the server jar, which no launcher keeps. Horizon never
-  downloads it; a launcher downloads it (the version JSON's `downloads.server`) only for a signed-in account
-  that owns Java Edition, as `horizon-launcher` does.
+  downloads it; a launcher downloads it (the version JSON's `downloads.server`) from Mojang's public CDN for the
+  signed-in Ely.by account, as `horizon-launcher` does.
 - `--java-home PATH`: a Java of the pinned version that the launcher manages, tried after `JAVA_HOME` and the
   `PATH`, before the official launcher's runtimes.
 - Exit codes: 0 done, 1 failed or gaps found, 2 a refused command line.

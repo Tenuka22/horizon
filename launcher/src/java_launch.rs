@@ -14,12 +14,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Who plays: the account's name, UUID, Minecraft access token and Xbox user id.
+/// Who plays: the Ely.by account's name, UUID (without dashes) and access token.
 pub struct Player {
     pub name: String,
     pub uuid: String,
     pub token: String,
-    pub xuid: String,
 }
 
 impl std::fmt::Debug for Player {
@@ -48,6 +47,9 @@ pub struct Launch<'a> {
     pub window: Option<(u32, u32)>,
     /// A server to join once the game has started: `host` or `host:port`.
     pub server: Option<&'a str>,
+    /// The authlib-injector jar, started as the first JVM argument so that the game signs in
+    /// and checks sessions at Ely.by; none: no agent (the game keeps its own sign-in).
+    pub agent: Option<&'a Path>,
 }
 
 impl Launch<'_> {
@@ -95,34 +97,6 @@ pub fn os_name() -> &'static str {
         crate::sources::Os::MacOs => "osx",
         crate::sources::Os::Windows => "windows",
     }
-}
-
-/// Whether a rule list lets this system in: the last matching rule decides; no rules allow.
-/// The optional features (demo, custom resolution, quick play) are on only when named in `on`.
-fn allowed(rules: &Value, os: &str, on: &[&str]) -> bool {
-    let Some(rules) = rules.as_array() else {
-        return true;
-    };
-    let arch_matches = |arch: &str| match arch {
-        "x86" => cfg!(target_arch = "x86"),
-        "arm64" | "aarch64" => cfg!(target_arch = "aarch64"),
-        "x86_64" | "amd64" => cfg!(target_arch = "x86_64"),
-        _ => false,
-    };
-    let mut allow = false;
-    for rule in rules {
-        let system = &rule["os"];
-        let matches = system["name"].as_str().is_none_or(|n| n == os)
-            && system["arch"].as_str().is_none_or(arch_matches)
-            && rule["features"].as_object().is_none_or(|f| {
-                f.iter()
-                    .all(|(name, v)| v.as_bool() == Some(on.contains(&name.as_str())))
-            });
-        if matches {
-            allow = rule["action"] == "allow";
-        }
-    }
-    allow
 }
 
 /// A version file.
@@ -213,12 +187,16 @@ fn resolve_from(version: Value, minecraft: &Path, seen: &mut Vec<String>) -> Res
 }
 
 /// The libraries this system uses, then the client jar (a loader's: the game's, `jar`).
-pub fn classpath(version: &Value, minecraft: &Path, os: &str) -> Result<Vec<PathBuf>, String> {
+pub fn classpath(
+    version: &Value,
+    minecraft: &Path,
+    system: mojang::System,
+) -> Result<Vec<PathBuf>, String> {
     let id = version["id"].as_str().ok_or("The version file has no id")?;
     let jar = version["jar"].as_str().unwrap_or(id);
     let mut paths: Vec<PathBuf> = Vec::new();
     for library in version["libraries"].as_array().into_iter().flatten() {
-        if !allowed(&library["rules"], os, &[]) {
+        if !mojang::active(library, system) {
             continue;
         }
         if let Some(path) = library["downloads"]["artifact"]["path"].as_str() {
@@ -242,15 +220,15 @@ pub fn classpath(version: &Value, minecraft: &Path, os: &str) -> Result<Vec<Path
 pub fn unpack_natives(
     version: &Value,
     minecraft: &Path,
-    os: &str,
+    system: mojang::System,
     to: &Path,
 ) -> Result<(), String> {
     fs::create_dir_all(to).map_err(|e| format!("{}: {e}", to.display()))?;
     for library in version["libraries"].as_array().into_iter().flatten() {
-        if !allowed(&library["rules"], os, &[]) {
+        if !mojang::active(library, system) {
             continue;
         }
-        let Some(key) = mojang::native_classifier(library, os) else {
+        let Some(key) = mojang::native_classifier(library, system) else {
             continue;
         };
         let Some(path) = library["downloads"]["classifiers"][key.as_str()]["path"].as_str() else {
@@ -319,12 +297,12 @@ pub fn game_assets(version: &Value, minecraft: &Path, game_dir: &Path) -> Result
 }
 
 /// The arguments of one list (`arguments.jvm` or `arguments.game`), their rules applied.
-fn list(args: &Value, os: &str, on: &[&str]) -> Vec<String> {
+fn list(args: &Value, system: mojang::System, on: &[&str]) -> Vec<String> {
     let mut out = Vec::new();
     for arg in args.as_array().into_iter().flatten() {
         match arg {
             Value::String(s) => out.push(s.clone()),
-            Value::Object(o) if allowed(&o["rules"], os, on) => match &o["value"] {
+            Value::Object(o) if mojang::rules_allow(&o["rules"], system, on) => match &o["value"] {
                 Value::String(s) => out.push(s.clone()),
                 Value::Array(values) => {
                     out.extend(values.iter().filter_map(Value::as_str).map(String::from))
@@ -365,8 +343,12 @@ pub fn command(version: &Value, launch: &Launch) -> Result<Command, String> {
         .as_str()
         .ok_or("The version file has no mainClass")?;
     let separator = if cfg!(windows) { ";" } else { ":" };
-    let classpath = classpath(version, launch.minecraft, launch.os)?;
-    unpack_natives(version, launch.minecraft, launch.os, launch.natives)?;
+    let system = mojang::System {
+        os: launch.os,
+        arch: mojang::Arch::current(),
+    };
+    let classpath = classpath(version, launch.minecraft, system)?;
+    unpack_natives(version, launch.minecraft, system, launch.natives)?;
     let assets = launch.minecraft.join("assets");
     let game_assets = game_assets(version, launch.minecraft, launch.game_dir)?;
     let path = |p: &Path| p.to_string_lossy().into_owned();
@@ -376,9 +358,10 @@ pub fn command(version: &Value, launch: &Launch) -> Result<Command, String> {
         ("auth_uuid", p.uuid.clone()),
         ("auth_access_token", p.token.clone()),
         ("auth_session", format!("token:{}:{}", p.token, p.uuid)),
-        ("auth_xuid", p.xuid.clone()),
+        // Only Microsoft accounts have an Xbox user id.
+        ("auth_xuid", String::new()),
         ("clientid", String::new()),
-        ("user_type", "msa".into()),
+        ("user_type", "mojang".into()),
         ("user_properties", "{}".into()),
         ("version_name", id.to_string()),
         (
@@ -424,11 +407,17 @@ pub fn command(version: &Value, launch: &Launch) -> Result<Command, String> {
         ),
         ("launcher_version", env!("CARGO_PKG_VERSION").into()),
     ]);
-    let mut jvm = vec![
+    // The agent that points sign-in at Ely.by goes first, as Ely.by documents it.
+    let mut jvm: Vec<String> = launch
+        .agent
+        .map(crate::authlib_injector::javaagent)
+        .into_iter()
+        .collect();
+    jvm.extend([
         format!("-Xmx{}M", launch.memory_mb),
         // Whatever the logging setup, never look names up in log messages.
         "-Dlog4j2.formatMsgNoLookups=true".to_string(),
-    ];
+    ]);
     let logging = &version["logging"]["client"];
     if let (Some(arg), Some(file)) = (logging["argument"].as_str(), logging["file"]["id"].as_str())
     {
@@ -455,8 +444,8 @@ pub fn command(version: &Value, launch: &Launch) -> Result<Command, String> {
         game.extend(line.split_whitespace().map(String::from));
     }
     let on = launch.features();
-    jvm_list.extend(list(&arguments["jvm"], launch.os, &on));
-    game.extend(list(&arguments["game"], launch.os, &on));
+    jvm_list.extend(list(&arguments["jvm"], system, &on));
+    game.extend(list(&arguments["game"], system, &on));
     // Versions whose rules don't ask for them still take the arguments (since 1.6.1): the
     // window's size, and before 1.20 (23w14a) a server as `--server` and `--port`.
     // <https://minecraft.wiki/w/Java_Edition_client_command_line_arguments>

@@ -1,8 +1,8 @@
 //! Every launcher CLI command as an MCP tool, generated from the CLI's own definition (clap) so the
 //! two can't drift: the tool `mods_search` is `horizon-launcher mods search`, its arguments are the
 //! command's (snake_case), and a call runs that command with `--json` as a child process and
-//! returns what it printed. A few commands keep a process or a sign-in going for the session;
-//! mcp.rs runs those itself under the same names (`play`, `server`, `account_sign_in`...).
+//! returns what it printed. A few commands keep a process going for the session; mcp.rs runs those
+//! itself under the same names (`play`, `server`...).
 use clap::{ArgAction, Command};
 use serde_json::{json, Map, Value};
 
@@ -22,6 +22,7 @@ const NOT_TOOLS: &[&str] = &[
     "mods update-github",
     "play",
     "server",
+    // It takes the player's Ely.by password, which an agent never handles.
     "account sign-in",
     "account list",
     "account session",
@@ -257,7 +258,7 @@ fn session_tool(words: &str) -> &'static str {
     match words {
         "play" => "`play`, then the `game_*` tools",
         "server" => "`server`, `server_command`, `server_log`, `server_stop`",
-        "account sign-in" => "`account_sign_in`",
+        "account sign-in" => "none: it takes the player's password",
         "account list" => "`account_list`",
         "mcp" => "none: this command is the MCP server",
         "agent-config" => "none: it prints how to connect a client to `mcp`",

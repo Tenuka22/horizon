@@ -39,7 +39,7 @@ An agent adds one server, `horizon-launcher mcp`. It holds:
 - **Session tools**, which keep something running between calls:
   - `play` (the game, under control: `world`, `creative`, `join`, `offscreen`, `arg`);
   - `server`, `server_command`, `server_log`, `server_stop`;
-  - `account_sign_in`, `account_list`.
+  - `account_list`.
 - **The game's tools.** It runs the selected version's `horizon-ctl mcp` (shipped beside the
   game) as a child. It lists that server's tools as `game_<name>`, all but `launch`, and passes
   calls and results through, images included. `play` starts the game with a control endpoint in
@@ -103,7 +103,7 @@ passes on without checking it).
 | Join a friend by invite code | Play | yes | yes | `play --join CODE` |
 | Dedicated server here: start, console, log, stop | Servers | yes | yes | `server`; MCP `server`, `server_command`, `server_log`, `server_stop` |
 | Hosted servers: list, create, set up, run a command, forget | Servers | yes | yes | `servers ...`; `servers_forget` needs `confirm` |
-| Accounts: list, sign in, sign out, select, offline | Settings | yes | yes | names and UUIDs only; sign-in is a device code |
+| Accounts: list, sign in, sign out, select | Settings | yes | yes | names and UUIDs only; sign-in is the CLI's (it asks for the password), not an MCP tool |
 | Game folder, server folder, install new versions, opening animation | Settings | yes | yes | `settings [KEY VALUE]` |
 | Extra game arguments | Settings | yes | yes | `game-args` |
 | Applications menu entry (Linux) | Settings | yes | yes | `desktop-entry` |
@@ -273,7 +273,7 @@ turn the switch off.
 - **No secrets.** No surface returns tokens, session files, keychain entries or invite secrets
   the player didn't ask to share:
   - accounts are names and UUIDs;
-  - sign-in is a device code the player enters;
+  - sign-in is not an MCP tool: a password must not pass through an agent;
   - `--session-file` is read once and deleted;
   - `servers` reads names and addresses only.
 - **Vanilla behaviour untouched.** Control code reads state and synthesizes the input events a

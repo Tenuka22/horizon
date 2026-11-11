@@ -212,8 +212,7 @@ P1 is alone, turning it off restores the normal controller reader. Leaving it on
 alone keeps watching for joins without a compositor.
 
 When Splitscreen is enabled, Play in the launcher also hands over its other signed-in
-Microsoft accounts. They appear first in the profile picker, marked **(Microsoft)**, and
-connect with their own sessions, skins and secure-chat keys. An account whose session is
+Ely.by accounts. They appear first in the profile picker and connect with their own sessions and skins. An account whose session is
 unavailable appears as **(Offline)**: sign in again in the launcher and restart the game to
 use it on an online-mode server. Launcher accounts cannot be forgotten from this page.
 
