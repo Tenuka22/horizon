@@ -38,7 +38,9 @@ impl AuthProvider {
         match value {
             None | Some("mojang") => Ok(Self::Mojang),
             Some("elyby") => Ok(Self::Elyby),
-            Some(other) => Err(format!("auth-provider must be mojang or elyby, not {other}")),
+            Some(other) => Err(format!(
+                "auth-provider must be mojang or elyby, not {other}"
+            )),
         }
     }
 

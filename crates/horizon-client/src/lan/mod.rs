@@ -173,10 +173,7 @@ pub struct OnlineMode {
 
 impl OnlineMode {
     /// MinecraftServer.initializeKeyPair.
-    pub fn generate(
-        prevent_proxy: bool,
-        provider: crate::auth::Provider,
-    ) -> Result<Self, String> {
+    pub fn generate(prevent_proxy: bool, provider: crate::auth::Provider) -> Result<Self, String> {
         let key = horizon_protocol::rsa::RsaPrivateKey::generate(1024)
             .map_err(|e| format!("Failed to generate key pair: {e}"))?;
         Ok(Self {

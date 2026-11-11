@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 /// authlib-injector's own metadata for its newest build.
-pub const LATEST: &str = "https://authlib-injector.yushi.moe/artifact/latest.json";
+pub const LATEST: &str = horizon_addresses::AUTHLIB_INJECTOR_LATEST;
 
 /// The agent's argument for Ely.by's servers (its documented shorthand).
 pub const ELY_BY: &str = "ely.by";

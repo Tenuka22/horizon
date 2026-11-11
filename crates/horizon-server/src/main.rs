@@ -230,9 +230,9 @@ fn init_answers(args: &[String]) -> Result<init::Answers, String> {
             "--offline" => answers.online = Some(false),
             "--auth-provider" => {
                 answers.auth_provider = Some(
-                    horizon_platform::server_files::properties::AuthProvider::parse(Some(
-                        &value(arg)?,
-                    ))?,
+                    horizon_platform::server_files::properties::AuthProvider::parse(Some(&value(
+                        arg,
+                    )?))?,
                 );
             }
             other => return Err(format!("init: unknown option {other}")),

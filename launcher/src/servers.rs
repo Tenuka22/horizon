@@ -833,9 +833,16 @@ pub struct Applied {
 }
 
 /// Changes settings through `horizon-server config set` (checked there; nothing is written if one is
-/// wrong).
+/// wrong). Turning account checks on also makes the server verify through Ely.by, which Ely.by
+/// players can only join, unless the owner already chose a provider.
 pub fn set_config(dir: &Path, changes: &[(&str, String)]) -> Result<Applied, Problem> {
-    let pairs: Vec<String> = changes.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    let mut pairs: Vec<String> = changes.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    let checks_on = changes.contains(&("server.online_mode", "true".to_string()));
+    let chosen = fs::read_to_string(dir.join("server.toml"))
+        .is_ok_and(|text| text.contains("auth-provider"));
+    if checks_on && !chosen {
+        pairs.push(format!("properties.auth-provider={AUTH_PROVIDER}"));
+    }
     let mut args = vec!["config", "set"];
     args.extend(pairs.iter().map(String::as_str));
     args.push("--json");

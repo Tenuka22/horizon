@@ -161,14 +161,13 @@ fn ely_skin(name: &str, cache: &Path, fetch: &dyn Fn(&str) -> Option<Vec<u8>>) -
 /// The skin hosts the launcher fetches from: Minecraft's textures (the skin system proxies
 /// Mojang's) and Ely.by's own storage. Never send credentials to a skin host.
 fn skin_host_ok(url: &str) -> bool {
-    const HOSTS: [&str; 4] = [
+    const MINECRAFT: [&str; 2] = [
         "https://textures.minecraft.net/texture/",
         "http://textures.minecraft.net/texture/",
-        "https://ely.by/storage/skins/",
-        "http://ely.by/storage/skins/",
     ];
-    HOSTS
+    MINECRAFT
         .iter()
+        .chain(&horizon_addresses::ELY_SKIN_FILES)
         .find_map(|host| url.strip_prefix(host))
         .map(|file| file.strip_suffix(".png").unwrap_or(file))
         .is_some_and(|hash| !hash.is_empty() && hash.bytes().all(|b| b.is_ascii_hexdigit()))
