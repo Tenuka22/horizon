@@ -479,14 +479,20 @@ def gather(kind, head, releases=None):
     kept = [tag for tag in run("git", "tag", "--list", "--merged", head).split() if keep(tag)]
     base = last["tag_name"] if last else max(kept, key=tag_key) if kept else run(
         "git", "rev-list", "--max-parents=0", head).split()[0]
-    return last, merged_between(kind, base, head)
+    # Without a release the history holds merges whose numbers are another repository's: only this one's
+    # are asked about, from one list instead of a lookup each.
+    own = None if last else {pr["number"] for pr in gh_json(
+        "pr", "list", "--repo", REPO, "--state", "merged", "--limit", "1000", "--json", "number")}
+    return last, merged_between(kind, base, head, own)
 
 
-def merged_between(kind, base, head):
+def merged_between(kind, base, head, own=None):
     """The pull requests merged into main between base and head, with their player-facing paths ("paths")."""
     exporter_paths = exporters()
     prs = []
     for number, commit in merged_pull_requests(base, head):
+        if own is not None and number not in own:
+            continue
         pr = pull_request(number)
         if pr is None:
             continue
