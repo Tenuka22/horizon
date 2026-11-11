@@ -13,6 +13,7 @@ mod console;
 mod console_page;
 mod cull;
 mod datapacks_page;
+mod elyby_form;
 mod export_page;
 mod frame;
 mod game_tools;
@@ -389,6 +390,7 @@ struct Launcher {
     friend_code: line_edit::LineEdit,
     friend_focused: bool,
     friend_focus: FocusHandle,
+    elyby: elyby_form::ElyForm,
     /// The window's width at the last frame: Home's head lays out by it, as the mockup's `xl`.
     window_width: f32,
     /// The window's longer side in points, and the screen's pixels per point: the size pictures
@@ -695,6 +697,7 @@ impl Launcher {
             window_long_side: 0.,
             scale_factor: 1.,
             friend_focus: cx.focus_handle(),
+            elyby: elyby_form::ElyForm::new(cx),
             joining: None,
             quick_play: None,
             client_run: None,
@@ -1580,6 +1583,7 @@ impl Launcher {
         changed |= self.github_tick();
         changed |= self.native_log_read(cx);
         changed |= self.toast_tick();
+        changed |= self.elyby_tick();
         if let Some(sign_in) = &self.sign_in {
             if let Some(state) = sign_in_change(&mut self.sign_in_state, sign_in.state()) {
                 if let SignInState::Done(Ok(ref account)) = state {
@@ -2024,9 +2028,13 @@ impl Launcher {
         self.begin_sign_in(None);
     }
 
-    fn re_sign_in(&mut self, uuid: &str) {
+    fn re_sign_in(&mut self, uuid: &str, cx: &mut Context<Self>) {
         if let Some(account) = self.accounts.find(uuid).cloned() {
-            self.begin_sign_in(Some(account));
+            if account.provider == account::Provider::Ely {
+                self.elyby_reopen(&account.name, cx);
+            } else {
+                self.begin_sign_in(Some(account));
+            }
         }
     }
 
@@ -4407,6 +4415,14 @@ impl Launcher {
             action,
             &t,
         ));
+        n += 1;
+        rows = rows.child(index_row(
+            n,
+            tr("Ely.by account"),
+            Some(self.elyby_body(cx).into_any_element()),
+            None,
+            &t,
+        ));
         (rows, n)
     }
 
@@ -4479,7 +4495,7 @@ impl Launcher {
             } else {
                 refresh.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     if needs_sign_in {
-                        this.re_sign_in(&refresh_id);
+                        this.re_sign_in(&refresh_id, cx);
                     } else {
                         this.refresh_account(refresh_id.clone());
                     }
@@ -4681,7 +4697,7 @@ impl Launcher {
             let mut actions = div().flex().gap(px(4.)).child(sign_in.on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     if let Some(uuid) = &target {
-                        this.re_sign_in(uuid);
+                        this.re_sign_in(uuid, cx);
                     } else {
                         this.start_sign_in();
                     }
@@ -5279,6 +5295,7 @@ impl Render for Launcher {
         self.mods.note_focus(window);
         self.github.note_focus(window);
         self.args_focused = self.args_focus.is_focused(window);
+        self.elyby.note_focus(window);
         self.proxy_focused = self.proxy_focus.is_focused(window);
         let size = window.viewport_size();
         self.window_width = f32::from(size.width);
@@ -5935,6 +5952,7 @@ mod tests {
         use super::{sign_in_change, SignInState};
         let mut shown = None;
         let completed = SignInState::Done(Ok(horizon_launcher::account::Account {
+            provider: horizon_launcher::account::Provider::Microsoft,
             uuid: "11111111111111111111111111111111".into(),
             name: "TestAccount".into(),
             skin: None,

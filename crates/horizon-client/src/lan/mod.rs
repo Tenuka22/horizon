@@ -167,25 +167,31 @@ pub struct OnlineMode {
     pub public_der: Vec<u8>,
     /// prevent-proxy-connections: the session service also checks the address.
     pub prevent_proxy: bool,
+    /// The account service whose players this server verifies (`auth-provider`).
+    pub provider: crate::auth::Provider,
 }
 
 impl OnlineMode {
     /// MinecraftServer.initializeKeyPair.
-    pub fn generate(prevent_proxy: bool) -> Result<Self, String> {
+    pub fn generate(
+        prevent_proxy: bool,
+        provider: crate::auth::Provider,
+    ) -> Result<Self, String> {
         let key = horizon_protocol::rsa::RsaPrivateKey::generate(1024)
             .map_err(|e| format!("Failed to generate key pair: {e}"))?;
         Ok(Self {
             public_der: key.public_der(),
             key,
             prevent_proxy,
+            provider,
         })
     }
     /// IntegratedServer.initServer (`setUsesAuthentication(true)`): a LAN or
     /// friends world authenticates its guests when the host is signed in;
     /// an offline name hosts in offline mode.
     pub fn lan() -> Option<Arc<Self>> {
-        crate::auth::current()?;
-        Self::generate(false)
+        let provider = crate::auth::current()?.provider;
+        Self::generate(false, provider)
             .map_err(|e| log::warn!("LAN stays in offline mode: {e}"))
             .ok()
             .map(Arc::new)

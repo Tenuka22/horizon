@@ -1,4 +1,4 @@
-//! Microsoft account sign-in (docs/microsoft-account.md): the OAuth device-code flow, then Xbox
+//! Microsoft and Ely.by account sign-in (docs/microsoft-account.md, docs/elyby-account.md): the OAuth device-code flow, then Xbox
 //! Live, XSTS and the Minecraft services, the game ownership check and the profile. Secrets (the
 //! Microsoft refresh token, the Minecraft access token, the last ownership answer) live in the OS
 //! keychain, or in a file only the player can read where there is none; accounts.json keeps only
@@ -12,6 +12,7 @@
 //!
 //! The Azure app (client ID) is Horizon's own and is configuration: `HORIZON_MSA_CLIENT_ID` at
 //! build time, or at run time to override it. Without one, sign-in says it is not configured.
+pub mod elyby;
 pub mod session;
 
 use serde_json::{json, Value};
@@ -28,6 +29,9 @@ pub const NOT_CONFIGURED: &str = "This build of the launcher has no Microsoft si
 pub const NEEDS_OWNER: &str =
     "Sign in with a Microsoft account that owns Minecraft: Java Edition to play";
 const DOES_NOT_OWN: &str = "This account doesn't own Minecraft: Java Edition.";
+/// Java Edition runs Mojang's own client, which joins Mojang's servers only.
+pub const JAVA_NEEDS_MICROSOFT: &str =
+    "Java Edition needs a Microsoft account. Ely.by accounts play in Horizon's own client.";
 const NO_PROFILE: &str =
     "This account has no Minecraft profile yet. Create one at minecraft.net, then sign in again.";
 const OTHER_PROFILE: &str =
@@ -55,6 +59,8 @@ pub struct Endpoints {
     pub xsts: String,
     /// api.minecraftservices.com.
     pub minecraft: String,
+    /// authserver.ely.by (`HORIZON_ELY_AUTH` overrides it).
+    pub ely: String,
 }
 
 impl Endpoints {
@@ -70,6 +76,7 @@ impl Endpoints {
             xbox_user: "https://user.auth.xboxlive.com/user/authenticate".into(),
             xsts: "https://xsts.auth.xboxlive.com/xsts/authorize".into(),
             minecraft: "https://api.minecraftservices.com".into(),
+            ely: elyby::base(),
         }
     }
 }
@@ -418,6 +425,25 @@ fn owns_game(ep: &Endpoints, token: &str) -> Result<bool, String> {
         }))
 }
 
+/// The service a launcher account signs in with.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Provider {
+    #[default]
+    Microsoft,
+    Ely,
+}
+
+impl Provider {
+    /// The `user_type` the game reads from the session file.
+    fn user_type(self) -> &'static str {
+        match self {
+            Self::Microsoft => "msa",
+            Self::Ely => "elyby",
+        }
+    }
+}
+
 /// A Minecraft profile, as the launcher shows and remembers it (no secrets).
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Account {
@@ -429,6 +455,9 @@ pub struct Account {
     pub skin: Option<(String, String)>,
     #[serde(default)]
     pub cape: Option<String>,
+    /// Which service signed the account in. Accounts saved before Ely.by existed are Microsoft.
+    #[serde(default)]
+    pub provider: Provider,
 }
 
 /// The profile; none when the account has none (it doesn't own the game, or never made one).
@@ -468,6 +497,7 @@ fn profile(ep: &Endpoints, token: &str) -> Result<Option<Account>, String> {
             ))
         }),
         cape: active("capes").and_then(|c| str_field(&c, "url")),
+        provider: Provider::Microsoft,
     }))
 }
 
@@ -554,7 +584,14 @@ fn check_with(
     progress: &dyn Fn(session::Phase),
 ) -> Check {
     if secrets.sign_in_required {
-        return Check::NoAnswer(SIGN_IN_AGAIN.into(), secrets);
+        let again = match account.provider {
+            Provider::Microsoft => SIGN_IN_AGAIN,
+            Provider::Ely => elyby::EXPIRED,
+        };
+        return Check::NoAnswer(again.into(), secrets);
+    }
+    if account.provider == Provider::Ely {
+        return check_ely(ep, account, secrets, force, progress);
     }
     if force || secrets.minecraft_expires_at <= now() + RENEW_BEFORE {
         progress(session::Phase::Microsoft);
@@ -608,6 +645,49 @@ fn check_with(
                 ..secrets
             },
         ),
+    }
+}
+
+/// An Ely.by account owns the game by its sign-in: no Microsoft or Minecraft check. Its access
+/// token is renewed through Ely.by when it has less than an hour left.
+fn check_ely(
+    ep: &Endpoints,
+    account: &Account,
+    mut secrets: Secrets,
+    force: bool,
+    progress: &dyn Fn(session::Phase),
+) -> Check {
+    secrets.owns = true;
+    if !force && secrets.minecraft_expires_at > now() + RENEW_BEFORE {
+        return Check::Owns(account.clone(), secrets);
+    }
+    progress(session::Phase::Elyby);
+    match elyby::refresh(&ep.ely, &secrets.minecraft_token, &secrets.refresh_token) {
+        Ok(t) if t.uuid != account.uuid => Check::NoAnswer(
+            elyby::OTHER_PROFILE.into(),
+            Secrets {
+                sign_in_required: true,
+                ..secrets
+            },
+        ),
+        Ok(t) => {
+            let renewed = Account {
+                name: t.name,
+                ..account.clone()
+            };
+            Check::Owns(
+                renewed,
+                Secrets {
+                    minecraft_token: t.access,
+                    minecraft_expires_at: now() + elyby::LIFETIME,
+                    ..secrets
+                },
+            )
+        }
+        Err(e) => {
+            secrets.sign_in_required = e == elyby::EXPIRED;
+            Check::NoAnswer(e, secrets)
+        }
     }
 }
 
@@ -1811,9 +1891,19 @@ impl Accounts {
         }
     }
 
-    /// Sign out: the secrets leave the keychain, the account the list.
+    /// Sign out: the secrets leave the keychain, the account the list. An Ely.by session ends at
+    /// Ely.by too (best effort).
     pub fn remove(&mut self, store: &dyn SecretStore, uuid: &str) -> Result<(), String> {
         let _operation = session::lock(store)?;
+        if self
+            .accounts
+            .iter()
+            .any(|a| a.uuid == uuid && a.provider == Provider::Ely)
+        {
+            if let Some(s) = secrets_in(store, uuid) {
+                elyby::invalidate(&elyby::base(), &s.minecraft_token, &s.refresh_token);
+            }
+        }
         store.delete(uuid)?;
         self.accounts.retain(|a| a.uuid != uuid);
         if self.selected.as_deref() == Some(uuid) {
@@ -2044,7 +2134,7 @@ pub fn write_session_file(
         "name": account.name,
         "uuid": account.uuid,
         "access_token": secrets.minecraft_token,
-        "user_type": "msa",
+        "user_type": account.provider.user_type(),
         "xuid": secrets.xuid,
     });
     std::io::Write::write_all(&mut file, body.to_string().as_bytes()).map_err(|e| e.to_string())?;
@@ -2149,6 +2239,39 @@ fn accept_sign_in(
         accounts.selected = selected;
     }
     Ok(())
+}
+
+/// Signs in to Ely.by with the player's username and password (and the two-factor code, when the
+/// account asks for one). The account is kept as a Microsoft sign-in is.
+pub fn elyby_sign_in(
+    username: &str,
+    password: &str,
+    totp: Option<&str>,
+) -> Result<Account, String> {
+    let store = store();
+    let client = elyby::client_token()?;
+    let tokens = elyby::authenticate(&elyby::base(), username, password, totp, &client)?;
+    let secrets = elyby::secrets(&tokens);
+    let account = Account {
+        uuid: tokens.uuid,
+        name: tokens.name,
+        skin: None,
+        cape: None,
+        provider: Provider::Ely,
+    };
+    let _operation = session::lock(store)?;
+    let mut accounts = Accounts::load();
+    accept_sign_in(
+        &mut accounts,
+        store,
+        None,
+        account.clone(),
+        &secrets,
+        &|| false,
+        &|_| {},
+    )?;
+    accounts.save()?;
+    Ok(account)
 }
 
 /// Where a background sign-in is (the window and the MCP server show it).
@@ -2486,13 +2609,19 @@ fn java_player_with(
         let order = accounts.selected().into_iter().chain(&accounts.accounts);
         order
             .into_iter()
-            .find_map(|a| Some((a.clone(), secrets_in(store, &a.uuid).filter(|s| s.owns)?)))
+            .find_map(|a| {
+                let secrets = secrets_in(store, &a.uuid).filter(|s| s.owns)?;
+                (a.provider == Provider::Microsoft).then(|| (a.clone(), secrets))
+            })
     };
     let (account, secrets) = pass
         .session
         .or(pass.owner)
         .or_else(kept)
         .ok_or_else(|| NoOwner::default().to_string())?;
+    if account.provider == Provider::Ely {
+        return Err(JAVA_NEEDS_MICROSOFT.to_string());
+    }
     Ok(crate::java_launch::Player {
         name: account.name,
         uuid: account.uuid,

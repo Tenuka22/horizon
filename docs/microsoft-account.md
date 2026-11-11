@@ -6,6 +6,8 @@ Minecraft: Java Edition ([the owner gate](#the-owner-gate)), as that account, on
 offline-mode servers too. There are no offline names. This note is the design, the status of each
 part and what Ludovic has to register.
 
+Ely.by accounts, the second sign-in provider, are described in [elyby-account.md](elyby-account.md).
+
 ## What Ludovic registers (needs his accounts)
 
 Nothing below can be done by an agent: the app registrations belong to Ludovic. A build without

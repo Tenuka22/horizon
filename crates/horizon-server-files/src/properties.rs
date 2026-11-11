@@ -23,11 +23,21 @@ pub struct ResourcePackInfo {
     pub prompt: Option<Json>,
 }
 
+/// The auth-provider property: whose accounts an online-mode server verifies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthProvider {
+    /// Mojang's session service (the default).
+    Mojang,
+    /// Ely.by's auth server.
+    Elyby,
+}
+
 /// Every value DedicatedServerProperties reads, in declaration order.
 #[derive(Clone, Debug)]
 pub struct ServerProperties {
     pub online_mode: bool,
     pub prevent_proxy_connections: bool,
+    pub auth_provider: AuthProvider,
     pub server_ip: String,
     pub allow_flight: bool,
     pub motd: String,
@@ -251,6 +261,21 @@ impl ServerProperties {
         let mut warnings = Vec::new();
         let online_mode = r.boolean("online-mode", true);
         let prevent_proxy_connections = r.boolean("prevent-proxy-connections", false);
+        let auth_provider = match r.raw("auth-provider").as_deref() {
+            None | Some("mojang") => AuthProvider::Mojang,
+            Some("elyby") => AuthProvider::Elyby,
+            Some(other) => {
+                return Err(format!("auth-provider must be mojang or elyby, not {other}"));
+            }
+        };
+        r.p.put(
+            "auth-provider",
+            match auth_provider {
+                AuthProvider::Mojang => "mojang",
+                AuthProvider::Elyby => "elyby",
+            }
+            .to_owned(),
+        );
         let server_ip = r.string("server-ip", "");
         let allow_flight = r.boolean("allow-flight", false);
         let motd = r.string("motd", "A Minecraft Server");
@@ -395,6 +420,7 @@ impl ServerProperties {
         Ok(Self {
             online_mode,
             prevent_proxy_connections,
+            auth_provider,
             server_ip,
             allow_flight,
             motd,

@@ -19,12 +19,21 @@ struct Mock {
     launcher_login_refused: Option<u16>,
     /// Mojang's session server refuses `join` (the token was revoked since it was renewed).
     join_refused: bool,
+    /// Ely.by asks the account for a two-factor code.
+    ely_two_factor: bool,
     /// Every request: method, path and body.
     log: Vec<(String, String, String)>,
 }
 
 fn reply(status: u16, body: Value) -> (u16, String) {
     (status, body.to_string())
+}
+
+fn ely_session(access: &str, client_token: &Value) -> (u16, String) {
+    reply(
+        200,
+        json!({"accessToken": access, "clientToken": client_token, "selectedProfile": {"id": "069a79f4-44e9-4726-a5be-fca90e38aaf5", "name": "Notch"}}),
+    )
 }
 
 fn route(mock: &mut Mock, method: &str, path: &str, auth: &str, body: &str) -> (u16, String) {
@@ -144,6 +153,35 @@ fn route(mock: &mut Mock, method: &str, path: &str, auth: &str, body: &str) -> (
             );
             (204, String::new())
         }
+        ("POST", "/ely/auth/authenticate") => {
+            let v: Value = serde_json::from_str(body).unwrap();
+            let password = v["password"].as_str().unwrap_or_default();
+            if password == "hunter2:123456" || (password == "hunter2" && !mock.ely_two_factor) {
+                ely_session("ely-access-1", &v["clientToken"])
+            } else if password == "hunter2" {
+                reply(
+                    401,
+                    json!({"error": "ForbiddenOperationException", "errorMessage": "Account protected with two factor auth."}),
+                )
+            } else {
+                reply(
+                    401,
+                    json!({"error": "ForbiddenOperationException", "errorMessage": "Invalid credentials. Invalid username or password."}),
+                )
+            }
+        }
+        ("POST", "/ely/auth/refresh") => {
+            let v: Value = serde_json::from_str(body).unwrap();
+            if v["accessToken"] == "ely-access-1" {
+                ely_session("ely-access-2", &v["clientToken"])
+            } else {
+                reply(
+                    401,
+                    json!({"error": "ForbiddenOperationException", "errorMessage": "Invalid token."}),
+                )
+            }
+        }
+        ("POST", "/ely/auth/invalidate") => (204, String::new()),
         _ => reply(404, json!({"error": "NotFound"})),
     }
 }
@@ -204,6 +242,7 @@ fn serve(mock: Arc<Mutex<Mock>>) -> Endpoints {
         xbox_user: format!("{base}/xbl"),
         xsts: format!("{base}/xsts"),
         minecraft: format!("{base}/mc"),
+        ely: format!("{base}/ely"),
     }
 }
 
@@ -231,6 +270,7 @@ fn the_whole_chain() {
     assert_eq!(
         account,
         Account {
+            provider: Provider::Microsoft,
             uuid: UUID.into(),
             name: "Notch".into(),
             skin: Some((
@@ -312,6 +352,7 @@ fn login_with_xbox_signs_in_when_launcher_login_refuses() {
 
 fn notch() -> Account {
     Account {
+        provider: Provider::Microsoft,
         uuid: UUID.into(),
         name: "Notch".into(),
         skin: None,
@@ -334,6 +375,7 @@ fn secrets(token: &str, owns: bool) -> Secrets {
 /// Nothing listens there: every request fails as with no network.
 fn offline() -> Endpoints {
     Endpoints {
+        ely: "http://127.0.0.1:9/ely".into(),
         microsoft: "http://127.0.0.1:9/ms".into(),
         xbox_user: "http://127.0.0.1:9/xbl".into(),
         xsts: "http://127.0.0.1:9/xsts".into(),
@@ -409,6 +451,7 @@ fn splitscreen_gets_the_other_accounts_that_still_hold() {
     let store = MemoryStore::default();
     let mut accounts = signed_in(&store, &secrets("mc-token", true));
     let other = |name: &str, uuid: &str| Account {
+        provider: Provider::Microsoft,
         uuid: uuid.into(),
         name: name.into(),
         skin: None,
@@ -489,6 +532,7 @@ fn splitscreen_never_hands_over_an_account_sent_back_to_sign_in() {
         ..secrets("other-profile-token", true)
     };
     let eve = Account {
+        provider: Provider::Microsoft,
         uuid: "e".into(),
         name: "Eve".into(),
         skin: None,
@@ -667,6 +711,7 @@ fn any_owner_opens_the_gate_and_the_one_who_plays_brings_the_session() {
     let mut accounts = signed_in(&store, &secrets("mc-token", true));
     // A second account, no longer in the keychain, plays.
     accounts.accounts.push(Account {
+        provider: Provider::Microsoft,
         uuid: "other".into(),
         name: "Alex".into(),
         skin: None,
@@ -705,6 +750,7 @@ fn the_game_plays_only_as_an_account_that_owns_it() {
     assert_eq!(accounts.selected.as_deref(), Some(UUID));
     // Another account plays: Notch owning the game doesn't let it play under a name of its own.
     accounts.accounts.push(Account {
+        provider: Provider::Microsoft,
         uuid: "other".into(),
         name: "Alex".into(),
         skin: None,
@@ -808,6 +854,7 @@ fn accounts_keep_secrets_in_the_store_only() {
     let store = MemoryStore::default();
     let mut accounts = Accounts::default();
     let account = Account {
+        provider: Provider::Microsoft,
         uuid: UUID.into(),
         name: "Notch".into(),
         skin: None,
@@ -1044,6 +1091,7 @@ fn has_owner_asks_the_selected_account_first() {
         .add(
             &store,
             Account {
+                provider: Provider::Microsoft,
                 uuid: "other".into(),
                 name: "Other".into(),
                 skin: None,
@@ -1110,6 +1158,7 @@ fn only_the_typed_macos_removed_executable_failure_gets_the_restart_message() {
 fn session_files_are_private_and_complete() {
     let dir = std::env::temp_dir().join(format!("horizon-launcher-session-{}", std::process::id()));
     let account = Account {
+        provider: Provider::Microsoft,
         uuid: UUID.into(),
         name: "Notch".into(),
         skin: None,
@@ -1164,6 +1213,7 @@ fn client_id_is_configuration() {
 fn play_as_picks_a_signed_in_account() {
     let mut a = Accounts {
         accounts: vec![Account {
+            provider: Provider::Microsoft,
             uuid: "abc".into(),
             name: "Ludo".into(),
             skin: None,
@@ -2365,6 +2415,7 @@ fn a_launch_as_another_account_leaves_the_selected_one() {
     let mut accounts = signed_in(&store, &secrets("mc-token", true));
     let alex = "0f22b7ed5e3d4a2c9bfe2f6f8f1f6a01";
     accounts.accounts.push(Account {
+        provider: Provider::Microsoft,
         uuid: alex.into(),
         name: "Alex".into(),
         skin: None,
@@ -2398,6 +2449,7 @@ fn splitscreen_stops_renewing_other_accounts_once_out_of_time() {
     let silent = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}/x", silent.local_addr().unwrap());
     let ep = Endpoints {
+        ely: url.clone(),
         microsoft: url.clone(),
         xbox_user: url.clone(),
         xsts: url.clone(),
@@ -2410,6 +2462,7 @@ fn splitscreen_stops_renewing_other_accounts_once_out_of_time() {
         ..secrets("old", true)
     };
     let cal = Account {
+        provider: Provider::Microsoft,
         uuid: "c".into(),
         name: "Cal".into(),
         skin: None,
@@ -2472,4 +2525,80 @@ fn joining_a_service_id_tells_mojangs_session_server() {
         "svc-42",
     );
     assert!(refused.unwrap_err().contains("Sign in again"));
+}
+
+#[test]
+fn an_elyby_sign_in_asks_for_the_code_then_gives_the_session() {
+    let (_m, ep) = mock(|m| m.ely_two_factor = true);
+    let client = "client-1";
+    assert_eq!(
+        elyby::authenticate(&ep.ely, "Notch", "hunter2", None, client)
+            .err()
+            .as_deref(),
+        Some(elyby::CODE_NEEDED)
+    );
+    assert_eq!(
+        elyby::authenticate(&ep.ely, "Notch", "hunter2", Some("000000"), client)
+            .err()
+            .as_deref(),
+        Some(elyby::WRONG_CODE)
+    );
+    assert_eq!(
+        elyby::authenticate(&ep.ely, "Notch", "nope", None, client)
+            .err()
+            .as_deref(),
+        Some(elyby::WRONG_CREDENTIALS)
+    );
+    let tokens = elyby::authenticate(&ep.ely, "Notch", "hunter2", Some("123456"), client).unwrap();
+    assert_eq!(
+        (
+            tokens.uuid.as_str(),
+            tokens.name.as_str(),
+            tokens.access.as_str(),
+            tokens.client_token.as_str()
+        ),
+        (UUID, "Notch", "ely-access-1", client)
+    );
+    let s = elyby::secrets(&tokens);
+    assert_eq!(
+        (
+            s.minecraft_token.as_str(),
+            s.refresh_token.as_str(),
+            s.xuid.clone(),
+            s.owns
+        ),
+        ("ely-access-1", client, None, true)
+    );
+    assert!(s.minecraft_expires_at > now() + RENEW_BEFORE);
+}
+
+#[test]
+fn an_elyby_session_renews_through_ely_and_never_asks_microsoft() {
+    let (m, ep) = mock(|_| {});
+    let tokens = elyby::ElyTokens {
+        access: "ely-access-1".into(),
+        client_token: "client-1".into(),
+        uuid: UUID.into(),
+        name: "Notch".into(),
+    };
+    let stale = Secrets {
+        minecraft_expires_at: 0,
+        ..elyby::secrets(&tokens)
+    };
+    let account = Account {
+        provider: Provider::Ely,
+        ..notch()
+    };
+    let Check::Owns(renewed, kept) = check(&ep, None, &account, stale) else {
+        panic!("an Ely.by account with a renewable session owns the game");
+    };
+    assert_eq!(kept.minecraft_token, "ely-access-2");
+    assert!(kept.minecraft_expires_at > now() + RENEW_BEFORE);
+    assert_eq!(renewed.uuid, UUID);
+    let log = m.lock().unwrap().log.clone();
+    assert!(log.iter().any(|(_, path, _)| path == "/ely/auth/refresh"));
+    assert!(log.iter().all(|(_, path, _)| !path.starts_with("/ms")
+        && !path.starts_with("/mc")
+        && !path.starts_with("/xbl")
+        && !path.starts_with("/xsts")));
 }

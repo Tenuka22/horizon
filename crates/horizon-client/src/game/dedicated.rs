@@ -9,10 +9,11 @@
 use super::{Game, Options, lan::LanSettings, world_loading::WorldRequest};
 use horizon_client::{
     Result,
+    auth::Provider,
     lan::{LoginGate, NetConfig, NetLog, OnlineMode, hub::HubConfig},
     server::{
         eula, profiles,
-        properties::{GAME_MODES, ServerProperties, SystemEntropy},
+        properties::{AuthProvider, GAME_MODES, ServerProperties, SystemEntropy},
         user_cache::UserCache,
         user_lists::{
             BanEntry, BanList, Change, IpBanList, NameAndId, OpEntry, OpList, WhiteEntry,
@@ -993,8 +994,13 @@ impl Game<'_> {
         // MinecraftServer.initializeKeyPair (only online mode uses it).
         log("INFO", "Generating keypair");
         let online = if props.online_mode {
+            let provider = match props.auth_provider {
+                AuthProvider::Mojang => Provider::Microsoft,
+                AuthProvider::Elyby => Provider::Ely,
+            };
             Some(Arc::new(OnlineMode::generate(
                 props.prevent_proxy_connections,
+                provider,
             )?))
         } else {
             None

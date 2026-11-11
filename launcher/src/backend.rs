@@ -2929,6 +2929,10 @@ pub fn client_command(tag: &str) -> Command {
     if let Ok(exe) = std::env::current_exe() {
         cmd.env("HORIZON_LAUNCHER_EXE", exe);
     }
+    // The Ely.by session server the game checks against: the launcher's own override wins.
+    if std::env::var_os("HORIZON_ELY_AUTH").is_none() {
+        cmd.env("HORIZON_ELY_AUTH", horizon_addresses::ELY_AUTH);
+    }
     // PipeWire remembers volume and mute per application name. The game's own name is
     // "PipeWire ALSA [horizon-client]", shared with development and test runs, where
     // muting it once left every later game silent: played from here it is "Horizon".
@@ -4807,6 +4811,7 @@ mod tests {
         assert!(!dir.exists());
         // An owner: Mojang is asked (and the download fails here, without network).
         let owner = account::Account {
+            provider: account::Provider::Microsoft,
             uuid: "069a79f444e94726a5befca90e38aaf5".into(),
             name: "Notch".into(),
             skin: None,

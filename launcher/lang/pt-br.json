@@ -1238,5 +1238,10 @@
   "In the last build, on Horizon {commit} for {mods}, not on {horizon}": "Na última compilação, no Horizon {commit} por {mods}, não no {horizon}",
   "In the last build, on {horizon}": "Na última compilação, no {horizon}",
   "Duplicate native mod {id}.": "Duplicate native mod {id}.",
-  "Native and content mod ids differ.": "Native and content mod ids differ."
+  "Native and content mod ids differ.": "Native and content mod ids differ.",
+  "Ely.by account": "Ely.by account",
+  "Sign in with Ely.by": "Sign in with Ely.by",
+  "Signing in…": "Signing in…",
+  "Sign in": "Sign in",
+  "Enter the code from your authenticator app, and your password again.": "Enter the code from your authenticator app, and your password again."
 }
