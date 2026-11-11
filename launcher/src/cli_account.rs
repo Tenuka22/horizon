@@ -42,9 +42,7 @@ pub(crate) fn sign_in(
         }
     };
     if as_json {
-        crate::cli::json(
-            serde_json::json!({ "signed_in": signed_in.uuid, "name": signed_in.name }),
-        );
+        super::json(serde_json::json!({ "signed_in": signed_in.uuid, "name": signed_in.name }));
     } else {
         println!("Signed in as {}.", signed_in.name);
     }

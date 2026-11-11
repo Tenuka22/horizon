@@ -13,6 +13,9 @@ use horizon_launcher::native_status;
 use horizon_launcher::other_launchers;
 use horizon_launcher::server_list;
 use std::io::{IsTerminal, Write};
+
+#[path = "cli_account.rs"]
+mod cli_account;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -1974,13 +1977,7 @@ fn account_command(action: AccountCmd, as_json: bool) -> Result<(), String> {
             username,
             password_stdin,
             code,
-        } => crate::cli_account::sign_in(
-            &accounts,
-            name.or(username),
-            password_stdin,
-            code,
-            as_json,
-        )?,
+        } => cli_account::sign_in(&accounts, name.or(username), password_stdin, code, as_json)?,
         AccountCmd::SignOut { who } => {
             let a = find(&accounts, &who)?;
             accounts.remove(account::store(), &a.uuid)?;

@@ -7,7 +7,6 @@ mod agents_page;
 mod art;
 mod blocks;
 mod cli;
-mod cli_account;
 mod cli_tools;
 mod collection;
 mod console;
