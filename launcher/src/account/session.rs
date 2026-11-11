@@ -361,6 +361,14 @@ pub(super) fn renew_for_game_with(
 /// say (`hasJoined`), after the client said so (`join`).
 pub const SESSION_SERVER: &str = "https://sessionserver.mojang.com";
 
+/// The session service an account joins through: Mojang's, or Ely.by's for an Ely.by account.
+fn session_service(account: &Account) -> &'static str {
+    match account.provider {
+        Provider::Ely => horizon_addresses::ELY_AUTH,
+        Provider::Microsoft => SESSION_SERVER,
+    }
+}
+
 /// Prove to a service that `who` owns their Minecraft account the way a client proves it to an
 /// online-mode server: tell Mojang's session server that this account joins `server_id`, a
 /// one-time value the service chose. The service then asks Mojang (`hasJoined`) and never sees
@@ -372,7 +380,7 @@ pub fn join_server(who: &str, server_id: &str) -> Result<(), String> {
         .ok_or("Sign in with a Minecraft account first.")?;
     join_server_with(
         &Endpoints::live(),
-        SESSION_SERVER,
+        session_service(&account),
         client_id().as_deref(),
         store(),
         &account,
@@ -403,7 +411,11 @@ pub(super) fn join_server_with(
         "selectedProfile": account.uuid,
         "serverId": server_id,
     });
-    let url = format!("{session}/session/minecraft/join");
+    let path = match account.provider {
+        Provider::Ely => "session/join",
+        Provider::Microsoft => "session/minecraft/join",
+    };
+    let url = format!("{session}/{path}");
     match send(
         request_to("POST", &url),
         Some(Body::Json(body)),

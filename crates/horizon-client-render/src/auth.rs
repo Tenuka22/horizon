@@ -1,4 +1,4 @@
-//! The Microsoft account the launcher signed in, handed over in a session
+//! The Microsoft or Ely.by account the launcher signed in, handed over in a session
 //! file (docs/microsoft-account.md), and the Minecraft services call
 //! online-mode servers need: authlib's MinecraftServicesSessionService.joinServer
 //! through the services discovery document. The access token stays in this

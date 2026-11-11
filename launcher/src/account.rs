@@ -1,4 +1,4 @@
-//! Microsoft account sign-in (docs/microsoft-account.md): the OAuth device-code flow, then Xbox
+//! Microsoft and Ely.by account sign-in (docs/microsoft-account.md, docs/elyby-account.md): the OAuth device-code flow, then Xbox
 //! Live, XSTS and the Minecraft services, the game ownership check and the profile. Secrets (the
 //! Microsoft refresh token, the Minecraft access token, the last ownership answer) live in the OS
 //! keychain, or in a file only the player can read where there is none; accounts.json keeps only
