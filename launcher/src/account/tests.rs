@@ -2575,7 +2575,7 @@ fn an_elyby_sign_in_asks_for_the_code_then_gives_the_session() {
 #[test]
 fn an_elyby_session_renews_through_ely_and_never_asks_microsoft() {
     let (m, ep) = mock(|_| {});
-    let tokens = ElyTokens {
+    let tokens = elyby::ElyTokens {
         access: "ely-access-1".into(),
         client_token: "client-1".into(),
         uuid: UUID.into(),
