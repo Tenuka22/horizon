@@ -1238,5 +1238,10 @@
   "In the last build, on Horizon {commit} for {mods}, not on {horizon}": "پچھلے بلڈ میں، {mods} کے لیے Horizon {commit} پر، {horizon} پر نہیں",
   "In the last build, on {horizon}": "پچھلے بلڈ میں، {horizon} پر",
   "Duplicate native mod {id}.": "Duplicate native mod {id}.",
-  "Native and content mod ids differ.": "Native and content mod ids differ."
+  "Native and content mod ids differ.": "Native and content mod ids differ.",
+  "Ely.by account": "Ely.by account",
+  "Sign in with Ely.by": "Sign in with Ely.by",
+  "Signing in…": "Signing in…",
+  "Sign in": "Sign in",
+  "Enter the code from your authenticator app, and your password again.": "Enter the code from your authenticator app, and your password again."
 }
