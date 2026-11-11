@@ -76,7 +76,7 @@ pub fn announce(setting: Option<String>) {
         .filter(|p| !p.is_empty());
     *held() = Some(spec.clone());
     horizon_port_pack::net::set_proxy(spec);
-    crate::backend::forget_agents();
+    crate::http_agent::forget_agents();
 }
 
 /// The launcher's setting: read from `settings.json` the first time it is needed and kept after

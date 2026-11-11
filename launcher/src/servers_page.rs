@@ -2529,19 +2529,6 @@ impl Launcher {
             .unwrap_or(false);
         let accounts_switch = switch("online-mode", accounts, &t)
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                // Turning the checks on: Ely.by players can only join a server that verifies
-                // accounts through Ely.by, unless the owner chose another provider.
-                if !accounts
-                    && this
-                        .servers
-                        .setting("properties", "auth-provider")
-                        .is_none()
-                {
-                    this.servers.queued.push((
-                        "properties.auth-provider".into(),
-                        servers::AUTH_PROVIDER.into(),
-                    ));
-                }
                 this.set_setting("server.online_mode", (!accounts).to_string());
                 cx.notify();
             }))

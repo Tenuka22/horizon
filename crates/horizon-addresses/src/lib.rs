@@ -39,6 +39,17 @@ pub const ELY_AUTH: &str = "https://authserver.ely.by";
 /// and the profile (`HORIZON_ELY_SKINS` overrides it).
 pub const ELY_SKINS: &str = "https://skinsystem.ely.by";
 
+/// Where Ely.by keeps the skin files its skin system points at, with and without TLS (the skin
+/// system answers with `http://` URLs): the only skin hosts the launcher fetches besides Minecraft's.
+pub const ELY_SKIN_FILES: [&str; 2] = [
+    "https://ely.by/storage/skins/",
+    "http://ely.by/storage/skins/",
+];
+
+/// authlib-injector's download information: the latest build's URL and SHA-256, which the launcher
+/// checks the jar against before Java Edition plays with an Ely.by account.
+pub const AUTHLIB_INJECTOR_LATEST: &str = "https://authlib-injector.yushi.moe/artifact/latest.json";
+
 /// Public STUN servers for Play with Friends' NAT discovery: two independent operators, so one
 /// outage doesn't break discovery (`HORIZON_STUN_SERVERS` overrides them).
 pub const STUN_SERVERS: &[&str] = &["stun.cloudflare.com:3478", "stun.l.google.com:19302"];

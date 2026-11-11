@@ -306,7 +306,10 @@ mod tests {
             ),
             ("204 No Content", ""),
             ("404 Not Found", r#"{"error":"nope"}"#),
-            ("200 OK", r#"{"id":"ffc8fdc95824509e8a57c99b940fb996","name":"Someone"}"#),
+            (
+                "200 OK",
+                r#"{"id":"ffc8fdc95824509e8a57c99b940fb996","name":"Someone"}"#,
+            ),
         ]);
         assert_eq!(
             find_by_name_ely(&base, "ericksKRAUCH"),

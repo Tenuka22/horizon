@@ -62,7 +62,9 @@ impl Answers {
             op: var("HORIZON_OP"),
             online: flag("HORIZON_ONLINE"),
             auth_provider: var("HORIZON_AUTH_PROVIDER")
-                .map(|p| AuthProvider::parse(Some(&p)).map_err(|e| format!("HORIZON_AUTH_PROVIDER: {e}")))
+                .map(|p| {
+                    AuthProvider::parse(Some(&p)).map_err(|e| format!("HORIZON_AUTH_PROVIDER: {e}"))
+                })
                 .transpose()?,
             yes: false,
         })

@@ -850,7 +850,8 @@ mod tests {
                 r#"{{"name":"Notch","uuid":"069a79f444e94726a5befca90e38aaf5","access_token":"t","user_type":"{user_type}"}}"#
             )
         };
-        let provider = |user_type: &str| AuthSession::parse(&session(user_type)).map(|s| s.provider);
+        let provider =
+            |user_type: &str| AuthSession::parse(&session(user_type)).map(|s| s.provider);
         assert_eq!(provider("msa"), Ok(Provider::Microsoft));
         assert_eq!(provider("elyby"), Ok(Provider::Ely));
         assert!(provider("legacy").is_err());
@@ -919,19 +920,36 @@ mod tests {
         let verify = format!("{base}/session/hasJoined");
         assert_eq!(post_join(&join, &session, "-7c9d"), Ok(()));
         assert_eq!(
-            query_has_joined(&verify, "Notch", "-7c9d", Some("127.0.0.1".parse().unwrap())),
-            Ok(Some(JoinedProfile { uuid: UUID, properties: Vec::new() }))
+            query_has_joined(
+                &verify,
+                "Notch",
+                "-7c9d",
+                Some("127.0.0.1".parse().unwrap())
+            ),
+            Ok(Some(JoinedProfile {
+                uuid: UUID,
+                properties: Vec::new()
+            }))
         );
         assert_eq!(query_has_joined(&verify, "Notch", "-7c9d", None), Ok(None));
-        assert_eq!(post_join(&join, &session, "-7c9d"), Err(JoinError::InvalidSession));
+        assert_eq!(
+            post_join(&join, &session, "-7c9d"),
+            Err(JoinError::InvalidSession)
+        );
         let seen = server.join().unwrap();
         assert_eq!(seen[0].0, "POST /session/join HTTP/1.1");
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&seen[0].1).unwrap(),
             serde_json::json!({"accessToken": "tok", "selectedProfile": "069a79f444e94726a5befca90e38aaf5", "serverId": "-7c9d"})
         );
-        assert_eq!(seen[1].0, "GET /session/hasJoined?username=Notch&serverId=-7c9d&ip=127.0.0.1 HTTP/1.1");
-        assert_eq!(seen[2].0, "GET /session/hasJoined?username=Notch&serverId=-7c9d HTTP/1.1");
+        assert_eq!(
+            seen[1].0,
+            "GET /session/hasJoined?username=Notch&serverId=-7c9d&ip=127.0.0.1 HTTP/1.1"
+        );
+        assert_eq!(
+            seen[2].0,
+            "GET /session/hasJoined?username=Notch&serverId=-7c9d HTTP/1.1"
+        );
         assert_eq!(seen[3].0, "POST /session/join HTTP/1.1");
     }
 
