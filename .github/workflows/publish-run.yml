@@ -33,10 +33,11 @@ jobs:
           TAG: ${{ inputs.tag }}
           SHA: ${{ inputs.sha }}
         run: |
-          # One folder per artifact: the files side by side.
-          find dist -mindepth 2 -type f -exec mv -t dist {} +
-          (cd dist && sha256sum -- horizon-launcher-* > SHA256SUMS)
-          ls -l dist
+          # One folder per artifact, named like its file: the files side by side in out/.
+          mkdir out
+          find dist -mindepth 2 -type f -exec mv -t out {} +
+          (cd out && sha256sum -- horizon-launcher-* > SHA256SUMS)
+          ls -l out
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$SHA" --title "Launcher ${TAG#launcher@}" \
             --notes "Launcher built from $SHA: Ely.by sign-in only, PolyMC-style game downloads. Unsigned: no release signing key and no macOS build in this repository, so launchers do not update from it. Download the file for your system." \
-            --latest=false dist/horizon-launcher-* dist/SHA256SUMS
+            --latest=false out/horizon-launcher-* out/SHA256SUMS
