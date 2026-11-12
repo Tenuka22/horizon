@@ -42,12 +42,17 @@ fn baseline(load: impl Fn() -> Result<serde_json::Value, String>) -> (Vec<Releas
     (releases, updates)
 }
 
-fn shared(load: impl FnOnce() -> Result<serde_json::Value, String>) -> (Vec<Release>, Updates) {
+/// The startup path under test: the game list from `load`, the launchers from their own list
+/// (the fork's, a separate request in production).
+fn shared(
+    load: impl FnOnce() -> Result<serde_json::Value, String>,
+    launcher_list: &serde_json::Value,
+) -> (Vec<Release>, Updates) {
     let mut releases = None;
     let updates = releases_and_updates_with(
         load,
         installed_fixture,
-        |list| parse_releases(list, LAUNCHER_ASSET, is_launcher_tag),
+        || parse_releases(launcher_list, LAUNCHER_ASSET, is_launcher_tag),
         |r| releases = Some(r.unwrap()),
     )
     .unwrap();
@@ -57,6 +62,7 @@ fn shared(load: impl FnOnce() -> Result<serde_json::Value, String>) -> (Vec<Rele
 #[test]
 fn one_response_preserves_both_startup_results() {
     let text = fixture();
+    let launcher_list: serde_json::Value = serde_json::from_str(&text).unwrap();
     let requests = AtomicUsize::new(0);
     let load = || {
         requests.fetch_add(1, Ordering::Relaxed);
@@ -64,7 +70,7 @@ fn one_response_preserves_both_startup_results() {
     };
     let old = baseline(load);
     assert_eq!(requests.swap(0, Ordering::Relaxed), 2);
-    let new = shared(load);
+    let new = shared(load, &launcher_list);
     assert_eq!(requests.load(Ordering::Relaxed), 1);
     assert_eq!(
         serde_json::to_value(old).unwrap(),
@@ -83,7 +89,7 @@ fn errors_reach_releases_and_updates_without_fallback() {
         let result = releases_and_updates_with(
             || Err(error.into()),
             || panic!("no installed scan after failure"),
-            |_| panic!("no fallback after failure"),
+            || panic!("no fallback after failure"),
             |r| published = Some(r),
         );
         assert_eq!(published.unwrap().unwrap_err(), error);
@@ -97,8 +103,8 @@ fn publish_games_before_older_launcher_fallback() {
     let result = releases_and_updates_with(
         || Ok(serde_json::json!([{"tag_name": "v2026.10.14", "assets": []}])),
         Vec::new,
-        |list| {
-            launcher_releases_in_with(list, |url| {
+        || {
+            launcher_releases_in_with(&serde_json::json!([]), |url| {
                 assert_eq!(events.borrow().first(), Some(&"releases"));
                 events.borrow_mut().push("fallback");
                 if url.contains("matching-refs") {
@@ -134,7 +140,7 @@ fn failed_launcher_fallback_keeps_game_result_and_checks_stay_fresh() {
                 Ok(serde_json::json!([{"tag_name": format!("v2026.10.{day}")}]))
             },
             Vec::new,
-            |list| launcher_releases_in_with(list, |_| Err("offline".into())),
+            || launcher_releases_in_with(&serde_json::json!([]), |_| Err("offline".into())),
             |r| published = Some(r.unwrap()),
         )
         .unwrap();
@@ -148,6 +154,7 @@ fn failed_launcher_fallback_keeps_game_result_and_checks_stay_fresh() {
 #[ignore = "local release-loading benchmark; run explicitly with --ignored --nocapture"]
 fn benchmark_shared_startup_response() {
     let text = fixture();
+    let launcher_list: serde_json::Value = serde_json::from_str(&text).unwrap();
     let requests = AtomicUsize::new(0);
     let load = |delay: Duration| {
         requests.fetch_add(1, Ordering::Relaxed);
@@ -157,7 +164,7 @@ fn benchmark_shared_startup_response() {
         serde_json::from_str(black_box(&text)).map_err(|e| e.to_string())
     };
     let old = || baseline(|| load(Duration::ZERO));
-    let new = || shared(|| load(Duration::ZERO));
+    let new = || shared(|| load(Duration::ZERO), &launcher_list);
     assert_eq!(
         serde_json::to_value(old()).unwrap(),
         serde_json::to_value(new()).unwrap()
@@ -187,7 +194,7 @@ fn benchmark_shared_startup_response() {
     let threaded_new = || {
         std::thread::scope(|scope| {
             scope
-                .spawn(|| shared(|| load(Duration::from_millis(5))))
+                .spawn(|| shared(|| load(Duration::from_millis(5)), &launcher_list))
                 .join()
                 .unwrap()
         })

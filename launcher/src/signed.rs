@@ -7,15 +7,26 @@
 use crate::backend::REPO;
 use horizon_release_sign::{PublicKey, SIGNATURE, SIGNATURE_V2, SUMS};
 
-/// Where a release's attached file downloads from (GitHub's fixed address for it).
-pub fn asset_url(tag: &str, name: &str) -> String {
-    format!("https://github.com/{REPO}/releases/download/{tag}/{name}")
+/// Where a release's attached file downloads from (GitHub's fixed address for it in `repo`).
+pub fn asset_url(repo: &str, tag: &str, name: &str) -> String {
+    format!("https://github.com/{repo}/releases/download/{tag}/{name}")
 }
 
-/// The signed SHA-256 of `asset` in release `tag`, fetching its SHA256SUMS and SHA256SUMS.sig
-/// with `fetch` (None: the release has no such file), or why the download must be refused. A
-/// release from before signing gets its pinned SHA-256, whatever files it carries now.
+/// The signed SHA-256 of `asset` in release `tag` of the game's repository ([`REPO`]).
 pub fn digest(
+    tag: &str,
+    asset: &str,
+    keys: &[PublicKey],
+    fetch: impl Fn(&str) -> Result<Option<Vec<u8>>, String>,
+) -> Result<String, String> {
+    digest_from(REPO, tag, asset, keys, fetch)
+}
+
+/// The signed SHA-256 of `asset` in release `tag` of `repo`, fetching its SHA256SUMS and
+/// SHA256SUMS.sig with `fetch` (None: the release has no such file), or why the download must be
+/// refused. A release from before signing gets its pinned SHA-256, whatever files it carries now.
+pub fn digest_from(
+    repo: &str,
     tag: &str,
     asset: &str,
     keys: &[PublicKey],
@@ -24,8 +35,8 @@ pub fn digest(
     if let Some(hex) = horizon_release_sign::legacy_digest(tag, asset) {
         return Ok(hex.to_owned());
     }
-    let sums = fetch(&asset_url(tag, SUMS))?;
-    let signature = fetch(&asset_url(tag, SIGNATURE))?
+    let sums = fetch(&asset_url(repo, tag, SUMS))?;
+    let signature = fetch(&asset_url(repo, tag, SIGNATURE))?
         .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
     horizon_release_sign::signed_digest(tag, asset, sums.as_deref(), signature.as_deref(), keys)
 }
@@ -42,8 +53,8 @@ pub fn nightly_digest(
     keys: &[PublicKey],
     fetch: impl Fn(&str) -> Result<Option<Vec<u8>>, String>,
 ) -> Result<String, String> {
-    let sums = fetch(&asset_url(tag, SUMS))?;
-    let signature = fetch(&asset_url(tag, SIGNATURE_V2))?
+    let sums = fetch(&asset_url(REPO, tag, SUMS))?;
+    let signature = fetch(&asset_url(REPO, tag, SIGNATURE_V2))?
         .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
     horizon_release_sign::nightly_digest(
         version,

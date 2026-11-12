@@ -3,3 +3,5 @@
 # The private keys exist only as the RELEASE_SIGNING_KEY secret(s) of the repository's `release` environment.
 # Changing this file needs Ludovic's review (.github/CODEOWNERS).
 MU4oiIQcCxkZvbwSjjXs7SySCuM6ywRQ3nGaJYZG0gw=
+# Tenuka22/horizon's fork key: signs the fork's launcher releases (LAUNCHER_REPO).
+FwoCaB007BBYm9Xg/00+6cz48UUmE+EIXuonson4D+E=

@@ -10,6 +10,9 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
+/// Where the launcher finds its own releases and checks their signatures: this fork's builds.
+/// The game, mods and the link list stay on [`REPO`].
+pub const LAUNCHER_REPO: &str = "Tenuka22/horizon";
 pub const REPO: &str = "horizon-rust/horizon";
 pub const README_URL: &str = "https://github.com/horizon-rust/horizon/blob/main/launcher/README.md";
 /// The players' page on connecting an AI agent (the website's docs/agents.md).
@@ -764,12 +767,15 @@ fn game_releases_with(
     out
 }
 
-/// The launcher releases in `list` (the newest 100 releases). Game releases come out several times
-/// a day, so the newest launcher release can be older than all of those: then the newest
-/// `launcher@` and `launcher-v` tags are looked up one by one (a draft's tag is skipped: it has no
-/// public release).
-fn launcher_releases_in(list: &serde_json::Value) -> Vec<Release> {
-    launcher_releases_in_with(list, |url| crate::github::json(&url))
+/// The launcher's own releases, from [`LAUNCHER_REPO`] (its newest 100 releases; a fetch failure
+/// means none). Game releases come out several times a day, so the newest launcher release can be
+/// older than all of those: then [`launcher_releases_in_with`] looks up the `launcher@` tags.
+fn launcher_releases() -> Vec<Release> {
+    let list = format!("https://api.github.com/repos/{LAUNCHER_REPO}/releases?per_page=100");
+    match crate::github::json(&list) {
+        Ok(list) => launcher_releases_in_with(&list, |url| crate::github::json(&url)),
+        Err(_) => Vec::new(),
+    }
 }
 
 fn launcher_releases_in_with(
@@ -780,7 +786,7 @@ fn launcher_releases_in_with(
     if found.iter().any(|r| r.asset.is_some()) {
         return found;
     }
-    let api = format!("https://api.github.com/repos/{REPO}");
+    let api = format!("https://api.github.com/repos/{LAUNCHER_REPO}");
     let mut tags = Vec::new();
     for prefix in [LAUNCHER_TAG_PREFIX, OLD_LAUNCHER_TAG_PREFIX] {
         // Every `launcher@` tag is newer than every `launcher-v` one: those only when there is none.
@@ -1092,8 +1098,9 @@ pub(crate) fn fetch_small(url: &str) -> Result<Option<Vec<u8>>, String> {
 }
 
 /// The SHA-256 the release's signed checksums give for `asset`, or why it must not be installed.
-fn signed_digest(tag: &str, asset: &str) -> Result<String, String> {
-    crate::signed::digest(
+fn signed_digest(repo: &str, tag: &str, asset: &str) -> Result<String, String> {
+    crate::signed::digest_from(
+        repo,
         tag,
         asset,
         &horizon_release_sign::trusted_keys(),
@@ -1225,7 +1232,7 @@ pub fn install(release: &Release, progress: impl Fn(f32)) -> Result<(), String> 
                 fetch_small,
             )?
         }
-        None if is_game_tag(tag) => signed_digest(tag, asset)?,
+        None if is_game_tag(tag) => signed_digest(REPO, tag, asset)?,
         None => return Err(format!("{tag} is not a Horizon release.")),
     };
     install_as(
@@ -2102,13 +2109,20 @@ fn download_for_account(
     fetch: sources::Fetch,
     log: &dyn Fn(String),
 ) -> Result<(), String> {
+    download_for(pins, dir, download_account().as_deref(), fetch, log)
+}
+
+/// The account Horizon downloads Minecraft for: the selected one if it has a session in the
+/// keychain, else any account that does.
+fn download_account() -> Option<String> {
     let accounts = account::Accounts::load();
-    let who = accounts
+    let store = account::store();
+    accounts
         .selected()
-        .or_else(|| accounts.accounts.first())
-        .filter(|_| accounts.has_session(account::store()))
-        .map(|a| a.name.as_str());
-    download_for(pins, dir, who, fetch, log)
+        .into_iter()
+        .chain(accounts.accounts.iter())
+        .find(|a| account::secrets_in(store, &a.uuid).is_some())
+        .map(|a| a.name.clone())
 }
 
 /// Downloads Minecraft `id` (any version on Mojang's list, its version file's sha1 from it) into
@@ -2466,8 +2480,11 @@ pub fn preparer(
                     sources::Resolved::Folder(dir) => dir,
                     sources::Resolved::NotFound(checked) => {
                         let not_found = sources::not_found(&version, &checked, minecraft);
-                        download_for_account(&pins, &own, &fetch, log)
-                            .map_err(|e| not_found + &e)?;
+                        if download_account().is_none() {
+                            return Err(not_found
+                                + "\n  • Or sign in with an Ely.by account: Horizon then downloads the files from Mojang itself.");
+                        }
+                        download_for_account(&pins, &own, &fetch, log)?;
                         own
                     }
                 }
@@ -3335,19 +3352,20 @@ fn launcher_update_from(releases: &[Release], own: &str) -> Option<Release> {
         .cloned()
 }
 
-/// Load the game's release list and both update kinds from the same GitHub response.
-/// Publish the game releases before any fallback lookups for older launcher tags, so those
-/// lookups cannot hold up the release pages or opening animation. A list error reaches both.
+/// Load the game's release list and the launcher's own updates. Publish the game releases before
+/// any fallback lookups for older launcher tags, so those lookups cannot hold up the release pages
+/// or opening animation. A game list error reaches both. The launcher's releases come from the
+/// fork ([`LAUNCHER_REPO`]), a second request.
 pub fn releases_and_updates(
     on_releases: impl FnOnce(Result<Vec<Release>, String>),
 ) -> Result<Updates, String> {
-    releases_and_updates_with(release_list, installed, launcher_releases_in, on_releases)
+    releases_and_updates_with(release_list, installed, launcher_releases, on_releases)
 }
 
 fn releases_and_updates_with(
     load: impl FnOnce() -> Result<serde_json::Value, String>,
     installed: impl FnOnce() -> Vec<String>,
-    launchers: impl FnOnce(&serde_json::Value) -> Vec<Release>,
+    launchers: impl FnOnce() -> Vec<Release>,
     on_releases: impl FnOnce(Result<Vec<Release>, String>),
 ) -> Result<Updates, String> {
     let list = match load() {
@@ -3364,7 +3382,7 @@ fn releases_and_updates_with(
     on_releases(Ok(releases));
     Ok(Updates {
         horizon,
-        launcher: launcher_update(&launchers(&list)),
+        launcher: launcher_update(&launchers()),
     })
 }
 
@@ -3939,7 +3957,11 @@ pub fn stage_update(release: &Release, progress: impl Fn(f32)) -> Result<Option<
     {
         return Ok(None);
     }
-    let sha256 = signed_digest(&release.tag, launcher_asset().unwrap_or_default())?;
+    let sha256 = signed_digest(
+        LAUNCHER_REPO,
+        &release.tag,
+        launcher_asset().unwrap_or_default(),
+    )?;
     let work = update_work_dir();
     remove_abandoned_stages(&work, std::time::SystemTime::now(), process_alive);
     let stage = new_stage_folder(&work)?;

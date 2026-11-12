@@ -1289,7 +1289,7 @@ pub struct Accounts {
 }
 
 /// The secrets an account keeps in `store`, if it still has them there.
-fn secrets_in(store: &dyn SecretStore, uuid: &str) -> Option<Secrets> {
+pub(crate) fn secrets_in(store: &dyn SecretStore, uuid: &str) -> Option<Secrets> {
     store
         .get(uuid)
         .ok()
