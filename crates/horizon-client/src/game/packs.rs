@@ -31,25 +31,17 @@ pub fn packs_dir() -> PathBuf {
         .unwrap_or_default()
         .join("resourcepacks")
 }
-mod folder;
-
-/// `Util.getPlatform().openPath`: the system file manager on the folder.
+/// `Blaze3D.openPath`: the desktop's handler on the folder (the default file manager).
 pub fn open_folder(dir: &Path) {
-    if let Err(e) = folder::command(dir).and_then(|mut command| command.spawn()) {
+    if let Err(e) = horizon_client::desktop::open_path(dir) {
         log::warn!("Horizon: could not open {}: {e}", dir.display());
     }
 }
-/// `Util.getPlatform().openUri`: the system browser on the link.
+/// `Blaze3D.openUri`: the system browser on the link.
 pub fn open_uri(uri: &str) {
-    // URLs need Windows' registered protocol handler, not Explorer's path
-    // handling. ShellExecute also preserves the URL as one Unicode value,
-    // without interpolating its query string into a command interpreter.
-    #[cfg(windows)]
-    if let Err(error) = open::that_detached(uri) {
+    if let Err(error) = horizon_client::desktop::open_uri(uri) {
         log::warn!("Horizon: could not open URI {uri}: {error}");
     }
-    #[cfg(not(windows))]
-    open_folder(Path::new(uri));
 }
 /// The resource root to load from: the selection and a server's packs, which go on top
 /// (`Pack.Position.TOP`, fixed), laid over `base`. `base` is the mods' content root
@@ -149,6 +141,34 @@ pub(super) fn pack_configs(vanilla: &Path) -> std::collections::BTreeMap<String,
         .map(|p| (p.id, p.polytone_configs))
         .collect()
 }
+
+/// The confirmation's callback, shared by the startup menu and in-game options.
+pub(super) fn import_resource_packs(
+    ui: &mut horizon_client::options_ui::OptionsUi,
+    vanilla: &Path,
+    server: &[Pack],
+    paths: &[PathBuf],
+) {
+    let dir = packs_dir();
+    let mut failed = false;
+    for path in paths {
+        match packs::copy_pack(path, &dir) {
+            Ok(()) => log::info!("Horizon: added resource pack {}", path.display()),
+            Err(error) => {
+                log::warn!(
+                    "Horizon: could not copy resource pack {}: {error}",
+                    path.display()
+                );
+                failed = true;
+            }
+        }
+    }
+    ui.update_pack_infos(pack_infos(vanilla, server));
+    ui.pack_configs = pack_configs(vanilla);
+    if failed {
+        ui.resource_error = Some(Text::translate("pack.copyFailure", &[]).plain());
+    }
+}
 /// The player changed Pack Options: `chosen` replaces their choices for `entries`, kept in
 /// `polytone-configs.json`.
 pub(super) fn save_pack_options(
@@ -164,6 +184,21 @@ pub(super) fn save_pack_options(
     packs::set_polytone_choices(all);
 }
 impl Game<'_> {
+    /// Resource packs own their drops; Create World's data packs retain their route.
+    pub(super) fn drop_pack_file(&mut self, path: &Path) {
+        let size = self.gui_size();
+        let handled = self.screen == super::Screen::Options
+            && self
+                .ui
+                .options
+                .drop_resource_pack(path.to_path_buf(), &self.gui.atlas, size);
+        if !handled
+            && self.title_input_active()
+            && let Some(title) = &mut self.title
+        {
+            title.drop_file(path.to_path_buf());
+        }
+    }
     pub(super) fn vanilla_root(&self) -> PathBuf {
         if self.ui.vanilla_root.as_os_str().is_empty() {
             self.options.resources.clone()
@@ -388,6 +423,7 @@ impl Game<'_> {
                     Some(textures),
                     self.settings.horizon.api,
                     self.settings.horizon.translucent_batching,
+                    self.settings.vsync,
                     &self.settings.horizon,
                     super::shader_packs::picked_pack_shape(&self.settings),
                     self.renderer
@@ -420,6 +456,7 @@ impl Game<'_> {
         self.random_tick_sections.clear();
         self.portals.sections.clear();
         self.options.resources = root.clone();
+        self.falling_vertices.get_mut().clear();
         self.pack = pack;
         self.gui = gui;
         // The new atlas's skin and map slots are blank: players and maps

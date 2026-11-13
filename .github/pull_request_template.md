@@ -2,8 +2,9 @@
 
 ## What and why
 
-<!-- What this changes, and why. Link the issue it fixes ("Fixes #123"). Over about 500 lines: link the issue with its
-     approved spec too ("Spec: #123"), CONTRIBUTING.md "Large pull requests". -->
+<!-- What this changes, and why. Link the issue it fixes ("Fixes #123"). Over about 500 lines of code
+     (docs and test files don't count): link the issue with its approved spec too ("Spec: #123"), CONTRIBUTING.md
+     "Large pull requests". -->
 
 ## Kind
 
@@ -31,13 +32,6 @@
 
 <!-- The vanilla classes and methods this follows (tools/rea_vanilla.py), and the harness that checks it.
      "Horizon-only" for a feature vanilla doesn't have; "none" for tooling or docs. -->
-
-## Other projects' code
-
-<!-- "none", or for each project you read or copied from: its link at the commit, its license (only MIT,
-     BSD-2-Clause, BSD-3-Clause, Apache-2.0, ISC, zlib, 0BSD, MIT-0, Unlicense or CC0-1.0), and what you took.
-     CONTRIBUTING.md "Only original code". Shader packs: also the sections of docs/cleanroom/shader-packs-spec.md,
-     the documentation pages and the packs you used. -->
 
 ## Self-check
 
