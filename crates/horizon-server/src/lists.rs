@@ -66,9 +66,11 @@ fn edit_locked(
             } else {
                 ops.add(OpEntry {
                     user,
-                    level: 4,
+                    // PlayerList.op: MinecraftServer.operatorUserPermissions(), the property's level.
+                    level: config.op_permission_level(dir),
                     bypasses_player_limit: false,
                 });
+                saved(&ops)?;
                 (true, format!("Made {name} a server operator"))
             }
         }
@@ -76,6 +78,7 @@ fn edit_locked(
             let mut ops = load(OpList::new(ops_path))?;
             let user = listed(ops.entries().iter().map(|e| &e.user), name);
             if user.is_some_and(|user| ops.remove(&user)) {
+                saved(&ops)?;
                 (true, format!("Made {name} no longer a server operator"))
             } else {
                 (
@@ -91,6 +94,7 @@ fn edit_locked(
                 (false, "Player is already whitelisted".to_owned())
             } else {
                 white.add(WhiteEntry { user });
+                saved(&white)?;
                 (true, format!("Added {name} to the whitelist"))
             }
         }
@@ -98,6 +102,7 @@ fn edit_locked(
             let mut white = load(WhiteList::new(white_path))?;
             let user = listed(white.entries().iter().map(|e| &e.user), name);
             if user.is_some_and(|user| white.remove(&user)) {
+                saved(&white)?;
                 (true, format!("Removed {name} from the whitelist"))
             } else {
                 (false, "Player is not whitelisted".to_owned())
@@ -148,6 +153,7 @@ fn edit_locked(
                 None,
                 reason.clone(),
             )) {
+                saved(&bans)?;
                 (
                     true,
                     format!(
@@ -166,6 +172,7 @@ fn edit_locked(
             let mut bans = load(BanList::new(dir.join("banned-players.json")))?;
             let user = listed(bans.entries().iter().map(|e| &e.user), name);
             if user.as_ref().is_some_and(|user| bans.remove(user)) {
+                saved(&bans)?;
                 (true, format!("Unbanned {name}"))
             } else {
                 (false, "Nothing changed. The player isn't banned".to_owned())
@@ -183,6 +190,7 @@ fn edit_locked(
                 None,
                 reason.clone(),
             )) {
+                saved(&bans)?;
                 (
                     true,
                     format!(
@@ -203,6 +211,7 @@ fn edit_locked(
             }
             let mut bans = load(IpBanList::new(dir.join("banned-ips.json")))?;
             if bans.remove(&(*ip).to_owned()) {
+                saved(&bans)?;
                 (true, format!("Unbanned IP {ip}"))
             } else {
                 (false, "Nothing changed. That IP isn't banned".to_owned())
@@ -258,6 +267,15 @@ fn listed<'a>(mut users: impl Iterator<Item = &'a NameAndId>, name: &str) -> Opt
 }
 
 /// A list from its file; a missing file is an empty list, a broken one an error (vanilla would replace it).
+/// The list as it now is, on disk: `add` and `remove` save it but only log a failed save, and the
+/// operator must not be told a ban or a deop happened when the file still says otherwise.
+fn saved<E: horizon_platform::server_files::user_lists::Entry>(
+    list: &horizon_platform::server_files::user_lists::UserList<E>,
+) -> Result<(), String> {
+    list.save()
+        .map_err(|e| format!("{}: {e}", list.file.display()))
+}
+
 fn load<E: horizon_platform::server_files::user_lists::Entry>(
     mut list: horizon_platform::server_files::user_lists::UserList<E>,
 ) -> Result<horizon_platform::server_files::user_lists::UserList<E>, String> {
@@ -470,5 +488,47 @@ mod tests {
             }
         }
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// `PlayerList.op` writes `MinecraftServer.operatorUserPermissions()`: the level of
+    /// `op-permission-level`, from `server.toml` or, when that does not set it, `server.properties`.
+    #[test]
+    fn a_stopped_op_gets_the_op_permission_level() {
+        for (name, toml_level, file_text, expected) in [
+            ("default", None, None, 4),
+            ("toml-2", Some(2), None, 2),
+            ("toml-0", Some(0), None, 0),
+            ("toml-9", Some(9), None, 4),
+            ("file-3", None, Some("op-permission-level=3\n"), 3),
+            ("toml-wins", Some(1), Some("op-permission-level=3\n"), 1),
+        ] {
+            let dir = std::env::temp_dir().join(format!(
+                "horizon-server-op-level-{name}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(config::FILE), config::TEMPLATE).unwrap();
+            config::update(&dir, "server", "online_mode", toml::Value::Boolean(false)).unwrap();
+            if let Some(text) = file_text {
+                std::fs::write(dir.join(config::PROPERTIES), text).unwrap();
+            }
+            if let Some(level) = toml_level {
+                config::update(
+                    &dir,
+                    "properties",
+                    "op-permission-level",
+                    toml::Value::Integer(level),
+                )
+                .unwrap();
+            }
+            edit_stopped(&dir, "op", &["Alex"]).unwrap();
+            let ops = std::fs::read_to_string(dir.join("ops.json")).unwrap();
+            assert!(
+                ops.contains(&format!("\"level\": {expected},")),
+                "{name}: {ops}"
+            );
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
     }
 }

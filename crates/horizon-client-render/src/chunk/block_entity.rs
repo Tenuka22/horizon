@@ -413,11 +413,19 @@ pub enum NameOrId {
 pub struct Crafter {
     pub items: [Option<ItemStack>; 9],
     pub disabled: [bool; 9],
-    pub triggered: bool,
+    /// `containerData` slot 9 as saved (`triggered`): any int, triggered
+    /// only at 1 ([`Crafter::is_triggered`]).
+    pub triggered: i32,
     pub crafting_ticks: i32,
     /// The block state's `triggered` when last ticked (not saved): the block
     /// entity flag follows it only when it changes (`CrafterBlock.neighborChanged`).
     pub state_triggered: Option<bool>,
+}
+impl Crafter {
+    /// `CrafterBlockEntity.isTriggered`: `containerData.get(9) == 1`.
+    pub fn is_triggered(&self) -> bool {
+        self.triggered == 1
+    }
 }
 #[derive(Clone, Debug, Default)]
 pub struct Banner {
@@ -465,6 +473,9 @@ pub struct Jukebox {
     /// reference exists. Keep this separate from legacy playback adoption.
     pub song_clock_present: bool,
     pub playing: bool,
+    /// A clock a save brought back, not playing yet: `setSongWithoutPlaying`
+    /// keeps the song and its clock without the sound's level event 1010.
+    pub loaded_clock: bool,
 }
 impl Jukebox {
     /// `JukeboxBlockEntity.getTheItem`: the disc it holds.
@@ -513,6 +524,10 @@ pub struct SignData {
     pub waxed: bool,
     /// `allow_op_features`: the sign's click events may run commands.
     pub allow_op_features: bool,
+    /// `playerWhoMayEdit`: the one player whose editor is on this sign, as a
+    /// UUID. Every other player's click, write and applicator is refused
+    /// while it is set. Not saved (vanilla keeps it out of the NBT).
+    pub allowed_editor: Option<u128>,
 }
 /// `VibrationInfo`.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -539,6 +554,7 @@ pub struct Data {
     pub current: Option<Info>,
     pub travel: i32,
     pub selector: Selector,
+    pub reload_particle: bool,
 }
 /// Which sculk block entity this is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
