@@ -173,7 +173,7 @@ fn an_old_version_gets_its_natives_and_assets_by_name() {
         "minecraftArguments": "--username ${auth_player_name} --session ${auth_session} --assetsDir ${game_assets} --userProperties ${user_properties} --unknown ${nothing}",
         "libraries": [{
             "name": "org.lwjgl.lwjgl:lwjgl-platform:2.9.4",
-            "natives": {"osx": "natives-osx"},
+            "natives": {"osx": "natives-osx", "osx-arm64": "natives-osx"},
             "extract": {"exclude": ["META-INF/"]},
             "downloads": {"classifiers": {"natives-osx": {"path": "org/lwjgl/lwjgl-platform-2.9.4-natives-osx.jar"}}}
         }]
