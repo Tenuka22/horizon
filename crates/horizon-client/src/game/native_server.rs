@@ -2190,7 +2190,9 @@ mod tests {
         assert_eq!(proxy_forwarding_of(&config), "velocity");
         // online-mode=true: the server's key, and forwarding stays off.
         config.forwarding_secret = None;
-        config.online = Some(std::sync::Arc::new(OnlineMode::generate(false).unwrap()));
+        config.online = Some(std::sync::Arc::new(
+            OnlineMode::generate(false, horizon_client::auth::Provider::Microsoft).unwrap(),
+        ));
         assert!(online_mode_of(&config));
         assert_eq!(proxy_forwarding_of(&config), "none");
     }
